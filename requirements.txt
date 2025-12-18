@@ -1,0 +1,4 @@
+opencv-python-headless
+pytesseract
+openai
+google-genai

@@ -2,6 +2,16 @@
 
 A Python tool for automatically identifying TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles to identify episodes in the series.
 
+## Get Started
+```bash
+git clone https://github.com/ram-nat/tvidentify tvidentify
+cd tvidentify
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python ./batch_identifier.py /path/to/TVShows/Game\ Of\ Thrones/Season\ 02/ --max-frames 10 --offset 3 --series-name "Game Of Thrones" --scan-duration 5 --output-dir ~/gots2 --model gemini-3-pro-preview --rename --skip-already-named
+```
+
 ## Features
 
 - **Subtitle Extraction**: 
@@ -30,7 +40,7 @@ A Python tool for automatically identifying TV show episodes from video files us
   - Use `--output-dir` to store output in json format. Stores both batch results and results for individual files.
 - **File Renaming**
   - `file_renamer.py` is the stand-alone module for this.
-  - Use `--rename-format` to specify the rename format. Only series, season and episode are the only available variables for the format string.
+  - Use `--rename-format` to specify the rename format. Series, season and episode are the available variables for the format string.
 
 ## Installation
 

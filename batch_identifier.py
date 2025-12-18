@@ -78,7 +78,7 @@ def is_already_named(filename, series_name, rename_format="{series} S{season:02d
     
     return False
 
-def find_episode_files(directory, extension=".mkv", size_threshold=0.8):
+def find_episode_files(directory, extension=".mkv", size_threshold=0.7):
     """
     Finds likely episode files in a directory based on file size.
 
@@ -124,7 +124,7 @@ def main():
     parser.add_argument('input_dir', help='The directory containing video files.')
     parser.add_argument('--series-name', required=True, help='The name of the TV series.')
     parser.add_argument(
-        '--size-threshold', type=float, default=0.8,
+        '--size-threshold', type=float, default=0.7,
         help='Size similarity threshold for filtering episodes (default: 0.8).'
     )
     parser.add_argument('--provider', type=str, default='google', choices=['google', 'openai', 'perplexity'],

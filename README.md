@@ -1,6 +1,6 @@
 # TVIdentify
 
-A Python tool for automatically identifying TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles to identify episodes in the series.
+A Python tool for automatically renaming TV Show episodes for Plex. Identifies TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles.
 
 ## Get Started
 ```bash

@@ -7,8 +7,8 @@ import re
 import json
 import tempfile
 from PIL import Image
-from pgsreader import PGSReader
-from imagemaker import make_image
+from .pgsreader import PGSReader
+from .imagemaker import make_image
 
 
 def clean_subtitle_text(text):

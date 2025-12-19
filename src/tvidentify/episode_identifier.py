@@ -5,7 +5,7 @@ import re
 
 from google.genai import Client
 from openai import OpenAI
-from subtitle_extractor import extract_subtitles, check_required_tools
+from .subtitle_extractor import extract_subtitles, check_required_tools
 
 
 # Configure the API keys

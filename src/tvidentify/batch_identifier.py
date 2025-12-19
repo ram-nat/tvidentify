@@ -2,9 +2,9 @@
 import argparse
 import json
 import os
-from subtitle_extractor import extract_subtitles, check_required_tools
-from episode_identifier import identify_episode
-from file_renamer import rename_file
+from .subtitle_extractor import extract_subtitles, check_required_tools
+from .episode_identifier import identify_episode
+from .file_renamer import rename_file
 
 def get_subtitle_fingerprint(video_file, subtitle_track_index, offset_minutes, scan_duration_minutes, num_events=20):
     """

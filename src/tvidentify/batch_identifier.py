@@ -119,13 +119,13 @@ def main():
     Main function to run the batch identification process.
     """
     parser = argparse.ArgumentParser(
-        description='Batch identify TV show episodes in a directory.'
+        description='Batch identify TV show episodes in a directory and rename them to match Plex TV episode naming.'
     )
     parser.add_argument('input_dir', help='The directory containing video files.')
     parser.add_argument('--series-name', required=True, help='The name of the TV series.')
     parser.add_argument(
         '--size-threshold', type=float, default=0.7,
-        help='Size similarity threshold for filtering episodes (default: 0.8).'
+        help='Size similarity threshold for filtering episodes (default: 0.7).'
     )
     parser.add_argument('--provider', type=str, default='google', choices=['google', 'openai', 'perplexity'],
                         help='LLM provider to use (default: google).')

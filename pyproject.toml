@@ -6,12 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "tvidentify"
 version = "0.1.0"
 description = "A tool to identify TV episodes from video files and rename them to match Plex naming conventions."
+keywords = ["tv", "episode", "identifier", "plex", "renamer", "subtitle", "ocr"]
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
-authors = [
-  {name = "Your Name", email = "your.email@example.com"}
-]
 dependencies = [
   "opencv-python-headless",
   "pytesseract",
@@ -19,9 +17,13 @@ dependencies = [
   "google-genai"
 ]
 
+[project.urls]
+"Homepage" = "https://github.com/ram-nat/tvidentify/"
+"Repository" = "https://github.com/ram-nat/tvidentify.git"
+
 [project.scripts]
 # This creates a command 'tvidentify' that runs the 'main' function in batch_identifier.py
 tvidentify = "tvidentify.batch_identifier:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]  # Remove this block if you aren't using the src/ layout
+where = ["src"]

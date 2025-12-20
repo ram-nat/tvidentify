@@ -1,15 +1,60 @@
 # TVIdentify
 
-A Python tool for automatically renaming TV Show episodes for Plex. Identifies TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles.
+Python tool for automatically identifying and renaming TV Show episodes for Plex given the video files and series name. Identifies TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles.
 
 ## Get Started
+
+### To just install the package and use it as a utility
+```bash
+python3 -m venv tvidentify
+cd tvidentify
+source bin/activate
+pip install tvidentify
+```
+
+### To modify the sources or build/work from source
 ```bash
 git clone https://github.com/ram-nat/tvidentify tvidentify
 cd tvidentify
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
-python ./batch_identifier.py /path/to/TVShows/Game\ Of\ Thrones/Season\ 02/ --max-frames 10 --offset 3 --series-name "Game Of Thrones" --scan-duration 5 --output-dir ~/gots2 --model gemini-3-pro-preview --rename --skip-already-named
+pip install -e .
+tvidentify /path/to/TVShows/Game\ Of\ Thrones/Season\ 02/ --max-frames 10 --offset 3 --series-name "Game Of Thrones" --scan-duration 5 --output-dir ~/gots2 --model gemini-3-pro-preview --rename --skip-already-named
+```
+
+### Usage
+```bash
+usage: tvidentify [-h] --series-name SERIES_NAME [--size-threshold SIZE_THRESHOLD] [--provider {google,openai,perplexity}] [--model MODEL] [--max-frames MAX_FRAMES] [--subtitle-track SUBTITLE_TRACK] [--offset OFFSET] [--scan-duration SCAN_DURATION] [--output-dir OUTPUT_DIR]
+                  [--rename] [--rename-format RENAME_FORMAT] [--skip-already-named]
+                  input_dir
+
+Batch identify TV show episodes in a directory.
+
+positional arguments:
+  input_dir             The directory containing video files.
+
+options:
+  -h, --help            show this help message and exit
+  --series-name SERIES_NAME
+                        The name of the TV series.
+  --size-threshold SIZE_THRESHOLD
+                        Size similarity threshold for filtering episodes (default: 0.7).
+  --provider {google,openai,perplexity}
+                        LLM provider to use (default: google).
+  --model MODEL         Model name. If not provided, defaults based on provider.
+  --max-frames MAX_FRAMES
+                        Maximum number of subtitle events to process (default: 10).
+  --subtitle-track SUBTITLE_TRACK
+                        The subtitle track index to use (default: 0).
+  --offset OFFSET       Skip the first N minutes for subtitle extraction (default: 0).
+  --scan-duration SCAN_DURATION
+                        How many minutes to scan for subtitles from the offset (default: 15).
+  --output-dir OUTPUT_DIR
+                        Optional directory to save JSON output files (one per video) instead of printing to console.
+  --rename              Rename files to "<series_name> S<season>E<episode>" format if identification is successful.
+  --rename-format RENAME_FORMAT
+                        Format for renamed files. Available placeholders: {{series}}, {{season}}, {{episode}}. Default: "{{series}} S{{season:02d}}E{{episode:02d}}"
+  --skip-already-named  Skip files that are already in the expected naming format (only when --rename is specified).
 ```
 
 ## Features
@@ -126,7 +171,7 @@ python batch_identifier.py /path/to/episodes/directory \
 #### batch_identifier.py
 - `input_dir`: Directory containing video files to process
 - `--series-name` (required): Name of the TV series
-- `--size-threshold`: File size similarity threshold for filtering episodes (default: 0.8)
+- `--size-threshold`: File size similarity threshold for filtering episodes (default: 0.7)
 - `--provider`: LLM provider (default: google). Options: google, openai, perplexity
 - `--model`: Model name. Defaults: gemini-2.5-flash (google), gpt-4 (openai), sonar-pro (perplexity)
 - `--max-frames`: Maximum number of subtitle events to process (default: 10)

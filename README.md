@@ -10,6 +10,7 @@ python3 -m venv tvidentify
 cd tvidentify
 source bin/activate
 pip install tvidentify
+tvidentify /path/to/TVShows/Game\ Of\ Thrones/Season\ 02/ --max-frames 10 --offset 3 --series-name "Game Of Thrones" --scan-duration 5 --output-dir ~/gots2 --model gemini-3-pro-preview --rename --skip-already-named
 ```
 
 ### To modify the sources or build/work from source

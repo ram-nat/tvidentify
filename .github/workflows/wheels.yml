@@ -62,6 +62,7 @@ jobs:
           fi
 
       - name: Sign the wheel
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: sigstore/gh-action-sigstore-python@v3.0.0
         with:
           inputs: dist/*.whl
@@ -72,8 +73,35 @@ jobs:
           name: wheels-${{ matrix.os }}
           path: |
             dist/*.whl
+            dist/*.tar.gz
             dist/*.sig
             dist/*.crt
             dist/*.tlog
             dist/*.bundle
           if-no-files-found: warn
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/tvidentify
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist/
+
+      - name: Clean dist directory
+        run: |
+          # Remove signature files as PyPI only accepts wheels and sdists
+          rm -f dist/*.sig dist/*.crt dist/*.tlog dist/*.bundle
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

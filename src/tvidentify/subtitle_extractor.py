@@ -102,36 +102,43 @@ def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
     return subtitle_streams
 
 
-def find_english_subtitle_stream(video_file: str) -> Optional[int]:
+def find_subtitle_stream(video_file: str, subtitle_track_index: Optional[int] = None) -> Optional[int]:
     """
-    Find the first English subtitle stream index using ffprobe.
-    Returns the stream index, or None if not found.
+    Find a suitable subtitle stream index using ffprobe.
+
+    - If subtitle_track_index is provided, validate and return it.
+    - If not, find the first English subtitle stream.
+    - If no English track is found, fall back to the first available subtitle stream.
+    - Return None if no subtitle tracks exist or the specified index is not found.
     """
     subtitle_tracks = get_subtitle_tracks(video_file)
-    
+
     if not subtitle_tracks:
         logger.warning("No subtitle tracks found.")
         return None
-    
-    logger.debug("Found subtitle tracks:")
-    for i, track in enumerate(subtitle_tracks):
-        codec_name = track.get('codec_name')
+
+    # If a specific track index is provided, find and validate it
+    if subtitle_track_index is not None:
+        for track in subtitle_tracks:
+            if track.get('index') == subtitle_track_index:
+                logger.info("Using user-specified subtitle stream at index %s", subtitle_track_index)
+                return subtitle_track_index
+        logger.error("Specified subtitle track index %s not found.", subtitle_track_index)
+        return None
+
+    # Otherwise, find the first English subtitle stream
+    english_stream_index = None
+    for track in subtitle_tracks:
         lang = track.get('tags', {}).get('language', 'eng')
-        stream_index = track.get('index')
-        logger.debug("  Stream %s (Track %s): Codec: %s, Language: %s", stream_index, i, codec_name, lang)
-        
-        # Check if this is an English subtitle stream
         if lang.lower().startswith('en'):
-            logger.info("Using English subtitle stream at index %s", stream_index)
-            return stream_index
-    
-    # If no English subtitle found, use the first one
-    if subtitle_tracks:
-        stream_index = subtitle_tracks[0].get('index')
-        logger.warning("No English subtitle found. Using first subtitle stream at index %s", stream_index)
-        return stream_index
-    
-    return None
+            english_stream_index = track.get('index')
+            logger.info("Found English subtitle stream at index %s", english_stream_index)
+            return english_stream_index
+
+    # If no English stream, fall back to the first available subtitle stream
+    first_stream_index = subtitle_tracks[0].get('index')
+    logger.warning("No English subtitle found. Using first available subtitle stream at index %s", first_stream_index)
+    return first_stream_index
 
 
 def extract_sup_file(video_file: str, output_sup_path: str, subtitle_stream_index: int, offset_minutes: int = 0, scan_duration_minutes: int = 15) -> bool:
@@ -241,7 +248,7 @@ def extract_text_from_sup(sup_file_path: str, max_subtitles: Optional[int] = Non
         return []
 
 
-def extract_subtitles(video_file: str, subtitle_track_index: int = 0, offset_minutes: int = 0, max_frames: Optional[int] = None, scan_duration_minutes: int = 15, output_dir: Optional[str] = None) -> List[str]:
+def extract_subtitles(video_file: str, subtitle_track_index: Optional[int] = None, offset_minutes: int = 0, max_frames: Optional[int] = None, scan_duration_minutes: int = 15, output_dir: Optional[str] = None) -> List[str]:
     """
     Extracts subtitles from a video file using FFmpeg and OCR.
     
@@ -252,7 +259,7 @@ def extract_subtitles(video_file: str, subtitle_track_index: int = 0, offset_min
     
     Args:
         video_file (str): Path to the video file.
-        subtitle_track_index (int): The index of the subtitle track to use (ignored, finds English automatically).
+        subtitle_track_index (int): The index of the subtitle track to use.
         offset_minutes (int): Skip the first N minutes of the video.
         max_frames (int): Maximum number of subtitles to extract.
         scan_duration_minutes (int): How many minutes of the video to scan for subtitles.
@@ -266,9 +273,9 @@ def extract_subtitles(video_file: str, subtitle_track_index: int = 0, offset_min
         return []
 
     # Find the English subtitle stream
-    subtitle_stream_index = find_english_subtitle_stream(video_file)
+    subtitle_stream_index = find_subtitle_stream(video_file, subtitle_track_index)
     if subtitle_stream_index is None:
-        logger.error("Error: Could not find a subtitle stream in the video file.")
+        logger.error("Error: Could not find a suitable subtitle stream in the video file.")
         return []
 
     all_subtitles = []
@@ -321,7 +328,7 @@ def add_extraction_args(parser: argparse.ArgumentParser) -> None:
     """
     group = parser.add_argument_group('Subtitle Extraction')
     group.add_argument('--max-frames', type=int, default=None, help='Maximum number of subtitles to extract.')
-    group.add_argument('--subtitle-track', type=int, default=0, help='The subtitle track index to use (ignored, finds English automatically).')
+    group.add_argument('--subtitle-track', type=int, default=None, help='The subtitle track index to use. If not specified, finds the first English track. If no english subtitle tracks are available, finds the first subtitle track.')
     group.add_argument('--offset', type=int, default=0, help='Skip the first N minutes of the video.')
     group.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
     group.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')

@@ -108,6 +108,9 @@ class TestEpisodeIdentifierCLI:
                 return_value=["Test subtitle"]
             )
             
+            # Mock check_required_tools to always return True
+            mocker.patch("tvidentify.episode_identifier.check_required_tools", return_value=True)
+
             # Mock the Google client with context manager support
             mock_response = MagicMock()
             mock_response.text = '{"season": 1, "episode": 1, "confidence_score": 90}'
@@ -149,6 +152,9 @@ class TestEpisodeIdentifierCLI:
                 return_value=["Test subtitle"]
             )
             
+            # Mock check_required_tools to always return True
+            mocker.patch("tvidentify.episode_identifier.check_required_tools", return_value=True)
+
             mock_choice = MagicMock()
             mock_choice.message.content = '{"season": 1, "episode": 1, "confidence_score": 90}'
             mock_response = MagicMock()
@@ -185,6 +191,9 @@ class TestEpisodeIdentifierCLI:
                 return_value=["Test subtitle"]
             )
             
+            # Mock check_required_tools to always return True
+            mocker.patch("tvidentify.episode_identifier.check_required_tools", return_value=True)
+
             # Mock the Google client with context manager support
             mock_response = MagicMock()
             mock_response.text = '{"season": 1, "episode": 1, "confidence_score": 90}'

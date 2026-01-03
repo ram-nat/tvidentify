@@ -102,7 +102,7 @@ def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
     return subtitle_streams
 
 
-def find_english_subtitle_stream(video_file: str, subtitle_track_index: Optional[int] = None) -> Optional[int]:
+def find_subtitle_stream(video_file: str, subtitle_track_index: Optional[int] = None) -> Optional[int]:
     """
     Find a suitable subtitle stream index using ffprobe.
 
@@ -273,7 +273,7 @@ def extract_subtitles(video_file: str, subtitle_track_index: Optional[int] = Non
         return []
 
     # Find the English subtitle stream
-    subtitle_stream_index = find_english_subtitle_stream(video_file, subtitle_track_index)
+    subtitle_stream_index = find_subtitle_stream(video_file, subtitle_track_index)
     if subtitle_stream_index is None:
         logger.error("Error: Could not find a suitable subtitle stream in the video file.")
         return []
@@ -328,7 +328,7 @@ def add_extraction_args(parser: argparse.ArgumentParser) -> None:
     """
     group = parser.add_argument_group('Subtitle Extraction')
     group.add_argument('--max-frames', type=int, default=None, help='Maximum number of subtitles to extract.')
-    group.add_argument('--subtitle-track', type=int, default=None, help='The subtitle track index to use. If not specified, finds the first English track.')
+    group.add_argument('--subtitle-track', type=int, default=None, help='The subtitle track index to use. If not specified, finds the first English track. If no english subtitle tracks are available, finds the first subtitle track.')
     group.add_argument('--offset', type=int, default=0, help='Skip the first N minutes of the video.')
     group.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
     group.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')

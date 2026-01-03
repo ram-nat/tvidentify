@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tvidentify"
-version = "0.1.0"
+version = "0.1.1"
 description = "A tool to identify TV episodes from video files and rename them to match Plex naming conventions."
 keywords = ["tv", "episode", "identifier", "plex", "renamer", "subtitle", "ocr"]
 readme = "README.md"

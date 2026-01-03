@@ -25,38 +25,48 @@ tvidentify /path/to/TVShows/Game\ Of\ Thrones/Season\ 02/ --max-frames 10 --offs
 
 ### Usage
 ```bash
-usage: tvidentify [-h] --series-name SERIES_NAME [--size-threshold SIZE_THRESHOLD] [--provider {google,openai,perplexity}] [--model MODEL] [--max-frames MAX_FRAMES] [--subtitle-track SUBTITLE_TRACK] [--offset OFFSET] [--scan-duration SCAN_DURATION] [--output-dir OUTPUT_DIR]
-                  [--rename] [--rename-format RENAME_FORMAT] [--skip-already-named]
+usage: tvidentify [-h] [--size-threshold SIZE_THRESHOLD] [--skip-already-named] [--rename] [--rename-format RENAME_FORMAT] [--provider {google,openai,perplexity}] [--model MODEL] --series-name SERIES_NAME [--max-frames MAX_FRAMES]
+                  [--subtitle-track SUBTITLE_TRACK] [--offset OFFSET] [--scan-duration SCAN_DURATION] [--output-dir OUTPUT_DIR] [--log-file LOG_FILE] [--verbose] [--debug]
                   input_dir
 
-Batch identify TV show episodes in a directory.
+Batch identify TV show episodes in a directory and rename them to match Plex TV episode naming.
 
 positional arguments:
   input_dir             The directory containing video files.
 
 options:
   -h, --help            show this help message and exit
-  --series-name SERIES_NAME
-                        The name of the TV series.
   --size-threshold SIZE_THRESHOLD
                         Size similarity threshold for filtering episodes (default: 0.7).
-  --provider {google,openai,perplexity}
-                        LLM provider to use (default: google).
-  --model MODEL         Model name. If not provided, defaults based on provider.
-  --max-frames MAX_FRAMES
-                        Maximum number of subtitle events to process (default: 10).
-  --subtitle-track SUBTITLE_TRACK
-                        The subtitle track index to use (default: 0).
-  --offset OFFSET       Skip the first N minutes for subtitle extraction (default: 0).
-  --scan-duration SCAN_DURATION
-                        How many minutes to scan for subtitles from the offset (default: 15).
-  --output-dir OUTPUT_DIR
-                        Optional directory to save JSON output files (one per video) instead of printing to console.
+  --skip-already-named  Skip files that are already in the expected naming format (only when --rename is specified).
   --rename              Rename files to "<series_name> S<season>E<episode>" format if identification is successful.
   --rename-format RENAME_FORMAT
                         Format for renamed files. Available placeholders: {{series}}, {{season}}, {{episode}}. Default: "{{series}} S{{season:02d}}E{{episode:02d}}"
-  --skip-already-named  Skip files that are already in the expected naming format (only when --rename is specified).
+
+LLM Configuration:
+  --provider {google,openai,perplexity}
+                        LLM provider to use (default: google).
+  --model MODEL         Model name. If not provided, defaults based on provider (google: gemini-2.5-flash, openai: gpt-4, perplexity: sonar).
+  --series-name SERIES_NAME
+                        The name of the TV series.
+
+Subtitle Extraction:
+  --max-frames MAX_FRAMES
+                        Maximum number of subtitles to extract.
+  --subtitle-track SUBTITLE_TRACK
+                        The subtitle track index to use. If not specified, finds English automatically. If not found, uses first subtitle track.
+  --offset OFFSET       Skip the first N minutes of the video.
+  --scan-duration SCAN_DURATION
+                        How many minutes of the video to scan for subtitles from the offset (default: 15).
+  --output-dir OUTPUT_DIR
+                        Optional directory to save JSON output instead of printing to console.
+
+Logging:
+  --log-file LOG_FILE   Path to a file to write detailed debug logs to.
+  --verbose, -v         Enable verbose output (INFO level is default, this is largely for symmetry).
+  --debug               Enable debug output to console.
 ```
+
 
 ## Features
 
@@ -152,7 +162,7 @@ python batch_identifier.py /path/to/episodes/directory \
 #### subtitle_extractor.py
 - `input_file`: Path to the video file to extract subtitles from
 - `--max-frames`: Maximum number of subtitle events to extract
-- `--subtitle-track`: Subtitle track index to use (default: 0)
+- `--subtitle-track`: Subtitle track index to use (default: finds English automatically, or uses first subtitle track if not found)
 - `--offset`: Skip first N minutes (default: 0)
 - `--scan-duration`: Minutes to scan from offset (default: 15)
 - `--output-dir`: Directory to save JSON output file
@@ -174,15 +184,19 @@ python batch_identifier.py /path/to/episodes/directory \
 - `--series-name` (required): Name of the TV series
 - `--size-threshold`: File size similarity threshold for filtering episodes (default: 0.7)
 - `--provider`: LLM provider (default: google). Options: google, openai, perplexity
-- `--model`: Model name. Defaults: gemini-2.5-flash (google), gpt-4 (openai), sonar-pro (perplexity)
+- `--model`: Model name. Defaults: gemini-2.5-flash (google), gpt-4 (openai), sonar (perplexity)
 - `--max-frames`: Maximum number of subtitle events to process (default: 10)
-- `--subtitle-track`: Subtitle track index to use (default: 0)
+- `--subtitle-track`: Subtitle track index to use (finds English automatically, or uses first subtitle track if not found)
 - `--offset`: Skip first N minutes (default: 0)
 - `--scan-duration`: Minutes to scan from offset (default: 15)
 - `--output-dir`: Directory to save JSON output files
 - `--rename`: Rename identified episodes to match Plex naming format
 - `--rename-format`: Format string for renamed files (default: `{series} S{season:02d}E{episode:02d}`)
 - `--skip-already-named`: Skip files that are already in the expected naming format (only when `--rename` is specified)
+- `--log-file`: Path to a file to write detailed debug logs to
+- `--verbose`, `-v`: Enable verbose output
+- `--debug`: Enable debug output to console
+
 
 #### file_renamer.py
 - `--batch-results` (required): Path to batch_results.json from batch_identifier

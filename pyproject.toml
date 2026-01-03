@@ -30,6 +30,7 @@ dev = ["pytest", "pytest-mock"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 markers = [
     "integration: tests requiring ffmpeg/tesseract installed",
     "llm: tests requiring API keys"

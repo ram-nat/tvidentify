@@ -66,6 +66,12 @@ def mock_ffprobe_english_subtitle():
                 "codec_type": "subtitle",
                 "codec_name": "hdmv_pgs_subtitle",
                 "tags": {"language": "eng"}
+            },
+            {
+                "index": 3,
+                "codec_type": "subtitle",
+                "codec_name": "hdmv_pgs_subtitle",
+                "tags": {"language": "spa"}
             }
         ]
     }

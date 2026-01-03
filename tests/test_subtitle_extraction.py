@@ -33,6 +33,21 @@ class TestFindEnglishSubtitleStream:
         
         assert stream_index == 2  # Index of English subtitle stream
 
+    def test_extraction_uses_specified_subtitle_track(
+        self, mocker, mock_ffprobe_english_subtitle
+    ):
+        """When a subtitle track is specified, it is used."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(mock_ffprobe_english_subtitle)
+        mocker.patch("subprocess.run", return_value=mock_result)
+
+        stream_index = find_english_subtitle_stream(
+            "/fake/video.mkv", subtitle_track_index=3
+        )
+
+        assert stream_index == 3
+
     def test_extraction_falls_back_when_no_english(
         self, mocker, mock_ffprobe_no_english_subtitle
     ):
@@ -58,6 +73,21 @@ class TestFindEnglishSubtitleStream:
         
         stream_index = find_english_subtitle_stream("/fake/video.mkv")
         
+        assert stream_index is None
+
+    def test_extraction_returns_none_for_nonexistent_track(
+        self, mocker, mock_ffprobe_english_subtitle
+    ):
+        """When a nonexistent track is specified, returns None."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = json.dumps(mock_ffprobe_english_subtitle)
+        mocker.patch("subprocess.run", return_value=mock_result)
+
+        stream_index = find_english_subtitle_stream(
+            "/fake/video.mkv", subtitle_track_index=99
+        )
+
         assert stream_index is None
 
 

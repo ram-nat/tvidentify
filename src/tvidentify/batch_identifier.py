@@ -12,7 +12,7 @@ from .utils import check_required_tools, setup_logging, DEFAULT_MODELS, add_logg
 
 logger = logging.getLogger(__name__)
 
-def get_subtitle_fingerprint(video_file: str, subtitle_track_index: int, offset_minutes: int, scan_duration_minutes: int, num_events: int = 20) -> Tuple[Optional[Tuple[int, ...]], Optional[List[str]]]:
+def get_subtitle_fingerprint(video_file: str, subtitle_track_index: Optional[int], offset_minutes: int, scan_duration_minutes: int, num_events: int = 20) -> Tuple[Optional[Tuple[int, ...]], Optional[List[str]]]:
     """
     Get a fingerprint of extracted subtitles for duplicate detection.
     
@@ -20,7 +20,7 @@ def get_subtitle_fingerprint(video_file: str, subtitle_track_index: int, offset_
     
     Args:
         video_file: Path to the video file
-        subtitle_track_index: Subtitle track index (ignored, finder uses English automatically)
+        subtitle_track_index: Subtitle track index
         offset_minutes: Offset in minutes
         scan_duration_minutes: Duration to scan in minutes
         num_events: Number of subtitles to extract for fingerprint (default: 20)

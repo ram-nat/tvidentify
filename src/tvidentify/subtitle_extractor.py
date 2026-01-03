@@ -1,17 +1,24 @@
 import subprocess
 import os
 import cv2
+import argparse
 import pytesseract
 import numpy as np
 import re
 import json
 import tempfile
+import logging
+from typing import List, Dict, Optional, Any
 from PIL import Image
 from .pgsreader import PGSReader
 from .imagemaker import make_image
+from .imagemaker import make_image
+from .utils import check_required_tools, setup_logging, add_logging_args
+
+logger = logging.getLogger(__name__)
 
 
-def clean_subtitle_text(text):
+def clean_subtitle_text(text: str) -> str:
     """
     Cleans OCR output: fixes |/I errors, removes SDH tags, and strips whitespace.
     """
@@ -39,7 +46,7 @@ def clean_subtitle_text(text):
     return text
 
 
-def ocr_image(cv_img):
+def ocr_image(cv_img: np.ndarray) -> str:
     """
     Performs OCR on a single PGS bitmap (OpenCV format).
     """
@@ -68,7 +75,7 @@ def ocr_image(cv_img):
     return clean_subtitle_text(text)
 
 
-def get_subtitle_tracks(video_file):
+def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
     """
     Uses ffprobe to get information about subtitle tracks in the video file.
     Returns the index of the first English subtitle stream, or 0 if not found.
@@ -84,7 +91,7 @@ def get_subtitle_tracks(video_file):
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
     except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"Error getting subtitle track info: {e}")
+        logger.error("Error getting subtitle track info: %s", e)
         return []
     
     subtitle_streams = []
@@ -95,7 +102,7 @@ def get_subtitle_tracks(video_file):
     return subtitle_streams
 
 
-def find_english_subtitle_stream(video_file):
+def find_english_subtitle_stream(video_file: str) -> Optional[int]:
     """
     Find the first English subtitle stream index using ffprobe.
     Returns the stream index, or None if not found.
@@ -103,31 +110,31 @@ def find_english_subtitle_stream(video_file):
     subtitle_tracks = get_subtitle_tracks(video_file)
     
     if not subtitle_tracks:
-        print("No subtitle tracks found.")
+        logger.warning("No subtitle tracks found.")
         return None
     
-    print("Found subtitle tracks:")
+    logger.debug("Found subtitle tracks:")
     for i, track in enumerate(subtitle_tracks):
         codec_name = track.get('codec_name')
         lang = track.get('tags', {}).get('language', 'eng')
         stream_index = track.get('index')
-        print(f"  Stream {stream_index} (Track {i}): Codec: {codec_name}, Language: {lang}")
+        logger.debug("  Stream %s (Track %s): Codec: %s, Language: %s", stream_index, i, codec_name, lang)
         
         # Check if this is an English subtitle stream
         if lang.lower().startswith('en'):
-            print(f"Using English subtitle stream at index {stream_index}")
+            logger.info("Using English subtitle stream at index %s", stream_index)
             return stream_index
     
     # If no English subtitle found, use the first one
     if subtitle_tracks:
         stream_index = subtitle_tracks[0].get('index')
-        print(f"No English subtitle found. Using first subtitle stream at index {stream_index}")
+        logger.warning("No English subtitle found. Using first subtitle stream at index %s", stream_index)
         return stream_index
     
     return None
 
 
-def extract_sup_file(video_file, output_sup_path, subtitle_stream_index, offset_minutes=0, scan_duration_minutes=15):
+def extract_sup_file(video_file: str, output_sup_path: str, subtitle_stream_index: int, offset_minutes: int = 0, scan_duration_minutes: int = 15) -> bool:
     """
     Use ffmpeg to extract a subtitle stream to a SUP file.
     
@@ -158,27 +165,27 @@ def extract_sup_file(video_file, output_sup_path, subtitle_stream_index, offset_
             '-y'
         ]
         
-        print(f"Extracting subtitle stream to SUP file...")
+        logger.info("Extracting subtitle stream to SUP file...")
         subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
         
         if os.path.exists(output_sup_path) and os.path.getsize(output_sup_path) > 0:
-            print(f"Successfully created SUP file: {output_sup_path}")
+            logger.debug("Successfully created SUP file: %s", output_sup_path)
             return True
         else:
-            print(f"Failed to create SUP file or file is empty.")
+            logger.error("Failed to create SUP file or file is empty.")
             return False
             
     except subprocess.CalledProcessError as e:
-        print(f"Error extracting SUP file (ffmpeg exited with code {e.returncode}).")
-        print(f"  Command: {' '.join(e.cmd)}")
-        print(f"  Stderr:\n{e.stderr}")
+        logger.error("Error extracting SUP file (ffmpeg exited with code %s).", e.returncode)
+        logger.error("  Command: %s", ' '.join(e.cmd))
+        logger.error("  Stderr:\n%s", e.stderr)
         return False
     except FileNotFoundError:
-        print("Error: ffmpeg is not installed or not in your PATH. Please install it.")
+        logger.error("Error: ffmpeg is not installed or not in your PATH. Please install it.")
         return False
 
 
-def extract_text_from_sup(sup_file_path, max_subtitles=None):
+def extract_text_from_sup(sup_file_path: str, max_subtitles: Optional[int] = None) -> List[str]:
     """
     Extracts text from SUP file up to `max_subtitles` entries.
     
@@ -221,20 +228,20 @@ def extract_text_from_sup(sup_file_path, max_subtitles=None):
                         # Only add if we actually got text back (ignores empty glitches)
                         if text:
                             subtitles.append(text)
-                            print(f"  Extracted subtitle {count + 1}: \"{text}\"")
+                            logger.debug("  Extracted subtitle %d: \"%s\"", count + 1, text)
                             count += 1
                 except Exception as e:
-                    print(f"  Error processing display set: {e}")
+                    logger.warning("  Error processing display set: %s", e)
                     continue
         
         return subtitles
         
     except Exception as e:
-        print(f"Error reading SUP file: {e}")
+        logger.error("Error reading SUP file: %s", e)
         return []
 
 
-def extract_subtitles(video_file, subtitle_track_index=0, offset_minutes=0, max_frames=None, scan_duration_minutes=15, output_dir=None):
+def extract_subtitles(video_file: str, subtitle_track_index: int = 0, offset_minutes: int = 0, max_frames: Optional[int] = None, scan_duration_minutes: int = 15, output_dir: Optional[str] = None) -> List[str]:
     """
     Extracts subtitles from a video file using FFmpeg and OCR.
     
@@ -255,13 +262,13 @@ def extract_subtitles(video_file, subtitle_track_index=0, offset_minutes=0, max_
         list[str]: A list of extracted subtitle strings.
     """
     if not os.path.exists(video_file):
-        print(f"Error: File not found at {video_file}")
+        logger.error("Error: File not found at %s", video_file)
         return []
 
     # Find the English subtitle stream
     subtitle_stream_index = find_english_subtitle_stream(video_file)
     if subtitle_stream_index is None:
-        print("Error: Could not find a subtitle stream in the video file.")
+        logger.error("Error: Could not find a subtitle stream in the video file.")
         return []
 
     all_subtitles = []
@@ -277,11 +284,11 @@ def extract_subtitles(video_file, subtitle_track_index=0, offset_minutes=0, max_
             offset_minutes=offset_minutes,
             scan_duration_minutes=scan_duration_minutes
         ):
-            print("Failed to extract subtitle stream to SUP file.")
+            logger.error("Failed to extract subtitle stream to SUP file.")
             return []
         
         # Extract text from the SUP file
-        print("\nPerforming OCR on subtitle frames...")
+        logger.info("Performing OCR on subtitle frames...")
         all_subtitles = extract_text_from_sup(sup_file_path, max_subtitles=max_frames)
 
     # Save to JSON if output_dir is specified
@@ -302,64 +309,43 @@ def extract_subtitles(video_file, subtitle_track_index=0, offset_minutes=0, max_
         try:
             with open(output_file, 'w') as f:
                 json.dump(output_data, f, indent=2)
-            print(f"\nJSON output saved to: {output_file}")
+            logger.info("JSON output saved to: %s", output_file)
         except IOError as e:
-            print(f"Error saving JSON output: {e}")
+            logger.error("Error saving JSON output: %s", e)
 
     return all_subtitles
 
-
-def get_subtitle_events(video_file, subtitle_track_index, read_interval=None):
+def add_extraction_args(parser: argparse.ArgumentParser) -> None:
     """
-    Stub function to maintain compatibility with batch_identifier.py.
-    The new FFmpeg-based extractor doesn't need this function.
+    Adds standard subtitle extraction arguments to the provided argparse parser.
     """
-    # This is kept for backward compatibility but not used by the new extractor
-    pass
-
-
-def check_required_tools():
-    """
-    Check if required tools are installed: ffmpeg, ffprobe, and tesseract.
-    
-    Returns:
-        bool: True if all tools are available, False otherwise
-    """
-    tools = [
-        ('ffmpeg', 'ffmpeg', '-version'),
-        ('ffprobe', 'ffprobe', '-version'),
-        ('tesseract', 'Tesseract OCR', '--version')
-    ]
-    
-    all_available = True
-    for tool_cmd, tool_name, arg in tools:
-        try:
-            subprocess.run([tool_cmd, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            print(f"✓ {tool_name} is available")
-        except FileNotFoundError:
-            print(f"✗ Error: {tool_name} is not installed or not in your PATH. Please install it.")
-            all_available = False
-    
-    return all_available
-
+    group = parser.add_argument_group('Subtitle Extraction')
+    group.add_argument('--max-frames', type=int, default=None, help='Maximum number of subtitles to extract.')
+    group.add_argument('--subtitle-track', type=int, default=0, help='The subtitle track index to use (ignored, finds English automatically).')
+    group.add_argument('--offset', type=int, default=0, help='Skip the first N minutes of the video.')
+    group.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
+    group.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')
 
 def main():
-    import argparse
-    
     parser = argparse.ArgumentParser(description='Extract subtitles from a video file using FFmpeg and OCR.')
     parser.add_argument('input_file', help='The input video file.')
-    parser.add_argument('--max-frames', type=int, default=None, help='Maximum number of subtitles to extract.')
-    parser.add_argument('--subtitle-track', type=int, default=0, help='The subtitle track index to use (ignored, finds English automatically).')
-    parser.add_argument('--offset', type=int, default=0, help='Skip the first N minutes of the video.')
-    parser.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
-    parser.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')
+    
+    add_extraction_args(parser)
+    add_logging_args(parser)
 
     args = parser.parse_args()
 
+    # Determine logging level
+    log_level = logging.INFO
+    if args.debug:
+        log_level = logging.DEBUG
+
+    setup_logging(console_level=log_level, log_file=args.log_file, file_level=log_level)
+
     # Check for required tools once at startup
-    print("Checking for required tools...")
+    logger.info("Checking for required tools...")
     if not check_required_tools():
-        print("\nError: Not all required tools are available. Please install the missing tools and try again.")
+        logger.error("Error: Not all required tools are available. Please install the missing tools and try again.")
         return
 
     extracted_subtitles = extract_subtitles(
@@ -371,13 +357,12 @@ def main():
         output_dir=args.output_dir
     )
 
-    print("\n--- All Extracted Subtitles ---")
+    logger.info("--- All Extracted Subtitles ---")
     if not extracted_subtitles:
-        print("No subtitles were found.")
+        logger.info("No subtitles were found.")
     else:
         for sub in extracted_subtitles:
-            print(sub)
-            print("---")
+            logger.info("%s", sub)
 
 
 if __name__ == '__main__':

@@ -2,11 +2,17 @@
 import argparse
 import json
 import os
-from .subtitle_extractor import extract_subtitles, check_required_tools
-from .episode_identifier import identify_episode
-from .file_renamer import rename_file
+import logging
+from typing import List, Tuple, Optional, Any, Dict
 
-def get_subtitle_fingerprint(video_file, subtitle_track_index, offset_minutes, scan_duration_minutes, num_events=20):
+from .subtitle_extractor import extract_subtitles, add_extraction_args
+from .episode_identifier import identify_episode, add_llm_args
+from .file_renamer import rename_file
+from .utils import check_required_tools, setup_logging, DEFAULT_MODELS, add_logging_args
+
+logger = logging.getLogger(__name__)
+
+def get_subtitle_fingerprint(video_file: str, subtitle_track_index: int, offset_minutes: int, scan_duration_minutes: int, num_events: int = 20) -> Tuple[Optional[Tuple[int, ...]], Optional[List[str]]]:
     """
     Get a fingerprint of extracted subtitles for duplicate detection.
     
@@ -39,10 +45,10 @@ def get_subtitle_fingerprint(video_file, subtitle_track_index, offset_minutes, s
         fingerprint = tuple(hash(sub) for sub in subtitles[:num_events])
         return fingerprint, subtitles  # Return both fingerprint and extracted subtitles
     except Exception as e:
-        print(f"  Error generating fingerprint: {e}")
+        logger.error("  Error generating fingerprint: %s", e)
         return None, None
 
-def is_already_named(filename, series_name, rename_format="{series} S{season:02d}E{episode:02d}"):
+def is_already_named(filename: str, series_name: str, rename_format: str = "{series} S{season:02d}E{episode:02d}") -> bool:
     """
     Check if a filename matches the expected naming format.
     
@@ -74,11 +80,11 @@ def is_already_named(filename, series_name, rename_format="{series} S{season:02d
             return True
     except re.error as e:
         # If regex fails, fall back to false
-        print(f"    [DEBUG] Regex error: {e}")
+        logger.debug("    [DEBUG] Regex error: %s", e)
     
     return False
 
-def find_episode_files(directory, extension=".mkv", size_threshold=0.7):
+def find_episode_files(directory: str, extension: str = ".mkv", size_threshold: float = 0.7) -> List[str]:
     """
     Finds likely episode files in a directory based on file size.
 
@@ -122,35 +128,13 @@ def main():
         description='Batch identify TV show episodes in a directory and rename them to match Plex TV episode naming.'
     )
     parser.add_argument('input_dir', help='The directory containing video files.')
-    parser.add_argument('--series-name', required=True, help='The name of the TV series.')
     parser.add_argument(
         '--size-threshold', type=float, default=0.7,
         help='Size similarity threshold for filtering episodes (default: 0.7).'
     )
-    parser.add_argument('--provider', type=str, default='google', choices=['google', 'openai', 'perplexity'],
-                        help='LLM provider to use (default: google).')
-    parser.add_argument('--model', type=str, default=None,
-                        help='Model name. If not provided, defaults based on provider.')
-    # Arguments for subtitle extraction, mirroring episode_identifier.py
     parser.add_argument(
-        '--max-frames', type=int, default=10,
-        help='Maximum number of subtitle events to process (default: 10).'
-    )
-    parser.add_argument(
-        '--subtitle-track', type=int, default=0,
-        help='The subtitle track index to use (default: 0).'
-    )
-    parser.add_argument(
-        '--offset', type=int, default=0,
-        help='Skip the first N minutes for subtitle extraction (default: 0).'
-    )
-    parser.add_argument(
-        '--scan-duration', type=int, default=15,
-        help='How many minutes to scan for subtitles from the offset (default: 15).'
-    )
-    parser.add_argument(
-        '--output-dir', type=str, default=None,
-        help='Optional directory to save JSON output files (one per video) instead of printing to console.'
+        '--skip-already-named', action='store_true',
+        help='Skip files that are already in the expected naming format (only when --rename is specified).'
     )
     parser.add_argument(
         '--rename', action='store_true',
@@ -161,35 +145,39 @@ def main():
         help='Format for renamed files. Available placeholders: {{series}}, {{season}}, {{episode}}. '
              'Default: "{{series}} S{{season:02d}}E{{episode:02d}}"'
     )
-    parser.add_argument(
-        '--skip-already-named', action='store_true',
-        help='Skip files that are already in the expected naming format (only when --rename is specified).'
-    )
+    
+    add_llm_args(parser)
+    add_extraction_args(parser)
+    add_logging_args(parser)
+    
     args = parser.parse_args()
 
+    # Determine logging level
+    log_level = logging.INFO
+    if args.debug:
+        log_level = logging.DEBUG
+        
+    # Setup logging globally
+    setup_logging(console_level=log_level, log_file=args.log_file, file_level=log_level)
+
     # Check for required tools once at startup
-    print("Checking for required tools...")
+    logger.info("Checking for required tools...")
     if not check_required_tools():
-        print("\nError: Not all required tools are available. Please install the missing tools and try again.")
+        logger.error("Error: Not all required tools are available. Please install the missing tools and try again.")
         return
 
     # Set default model based on provider
     if args.model is None:
-        if args.provider == 'google':
-            args.model = 'gemini-2.5-flash'
-        elif args.provider == 'openai':
-            args.model = 'gpt-4'
-        elif args.provider == 'perplexity':
-            args.model = 'sonar-pro'
+        args.model = DEFAULT_MODELS.get(args.provider, "gemini-2.5-flash")
 
     # Find potential episode files based on size
     episode_files = find_episode_files(args.input_dir, size_threshold=args.size_threshold)
 
     if not episode_files:
-        print(f"No likely episode files found in '{args.input_dir}'.")
+        logger.warning("No likely episode files found in '%s'.", args.input_dir)
         return
 
-    print(f"Found {len(episode_files)} potential episode files. Processing...")
+    logger.info("Found %d potential episode files. Processing...", len(episode_files))
 
     all_results = []
     fingerprint_cache = {}  # Maps fingerprint -> (filename, result)
@@ -204,7 +192,7 @@ def main():
         # Skip already-named files if requested and rename is enabled
         if args.skip_already_named and args.rename:
             if is_already_named(filename, args.series_name, args.rename_format):
-                print(f"\n--- Skipping: {filename} (already in expected format) ---")
+                logger.info("--- Skipping: %s (already in expected format) ---", filename)
                 result = {
                     "input_file_name": filename,
                     "video_file_path": video_file,
@@ -214,14 +202,14 @@ def main():
                 all_results.append(result)
                 continue
         
-        print(f"\n--- Processing: {filename} ---")
+        logger.info("--- Processing: %s ---", filename)
         result = {
             "input_file_name": filename,
             "video_file_path": video_file  # Store full path for renaming
         }
 
         # 1. Generate fingerprint for duplicate detection and extract subtitles
-        print(f"  Generating subtitle fingerprint for duplicate detection...")
+        logger.info("  Generating subtitle fingerprint for duplicate detection...")
         fingerprint, subtitles = get_subtitle_fingerprint(
             video_file,
             args.subtitle_track,
@@ -244,7 +232,7 @@ def main():
             result["subtitles"] = original_result.get("subtitles", [])
             result["provider"] = args.provider
             result["model"] = args.model
-            print(f"  Duplicate detected! Matches: {original_filename}")
+            logger.info("  Duplicate detected! Matches: %s", original_filename)
             all_results.append(result)
             continue
 
@@ -269,9 +257,9 @@ def main():
                 )
                 result["rename"] = rename_result
                 if rename_result["success"]:
-                    print(f"  Renamed to: {os.path.basename(rename_result['new_path'])}")
+                    logger.info("  Renamed to: %s", os.path.basename(rename_result['new_path']))
                 else:
-                    print(f"  Rename failed: {rename_result['error']}")
+                    logger.error("  Rename failed: %s", rename_result['error'])
         else:
             result["error"] = "Could not extract subtitles."
 
@@ -286,10 +274,10 @@ def main():
                     with open(individual_file, 'w') as f:
                         json.dump(result, f, indent=2)
                 except IOError as e:
-                    print(f"  Warning: Could not save result for {result['input_file_name']}: {e}")
+                    logger.warning("  Warning: Could not save result for %s: %s", result['input_file_name'], e)
 
     # Print the final JSON output
-    print("\n--- Batch Identification Complete ---")
+    logger.info("--- Batch Identification Complete ---")
     
     # Save/print batch results summary
     if args.output_dir:
@@ -297,12 +285,12 @@ def main():
         try:
             with open(output_file, 'w') as f:
                 json.dump(all_results, f, indent=2)
-            print(f"Batch summary saved to: {output_file}")
+            logger.info("Batch summary saved to: %s", output_file)
         except IOError as e:
-            print(f"Error saving batch results summary: {e}")
+            logger.error("Error saving batch results summary: %s", e)
     else:
         # Print to console if no output_dir specified
-        print(json.dumps(all_results, indent=2))
+        print(json.dumps(all_results, indent=2)) # Keep stdout clean for piping
 
 if __name__ == '__main__':
     main()

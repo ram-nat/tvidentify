@@ -47,7 +47,7 @@ class TestTesseractOCR:
 
     def test_ocr_reads_subtitle_image(self, subtitle_test_image):
         """Tesseract can read subtitle-style image (white text on transparent background)."""
-        from tvidentify.subtitle_extractor import ocr_image
+        from tvidentify.subtitle_handlers import ocr_image
         
         result = ocr_image(subtitle_test_image)
         
@@ -62,9 +62,10 @@ class TestSubtitleExtraction:
 
     def test_extract_text_from_sup_file(self, sup_test_file):
         """Full extraction pipeline: SUP file → PGS parsing → OCR → text."""
-        from tvidentify.subtitle_extractor import extract_text_from_sup
+        from tvidentify.subtitle_handlers import PGSHandler
         
-        subtitles = extract_text_from_sup(sup_test_file)
+        handler = PGSHandler()
+        subtitles = handler._extract_text_from_sup(sup_test_file)
         
         # Should extract at least one subtitle
         assert len(subtitles) >= 1

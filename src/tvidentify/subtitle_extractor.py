@@ -1,78 +1,16 @@
 import subprocess
 import os
-import cv2
 import argparse
-import pytesseract
-import numpy as np
-import re
 import json
-import tempfile
 import logging
-from typing import List, Dict, Optional, Any
-from PIL import Image
-from .pgsreader import PGSReader
-from .imagemaker import make_image
-from .imagemaker import make_image
+from typing import List, Dict, Optional, Any, Tuple
+
+from .subtitle_handlers import SubtitleHandler, get_handler_for_codec, get_supported_codecs
 from .utils import check_required_tools, setup_logging, add_logging_args
 
 logger = logging.getLogger(__name__)
 
 
-def clean_subtitle_text(text: str) -> str:
-    """
-    Cleans OCR output: fixes |/I errors, removes SDH tags, and strips whitespace.
-    """
-    if not text: 
-        return ""
-    
-    text = text.strip()
-    
-    # Fix common | vs I errors at start of lines
-    text = re.sub(r'^\|', 'I', text) 
-    text = re.sub(r'(?<=\n)\|', 'I', text)
-    
-    # Fix common "l" vs "I" errors
-    text = text.replace("l'm", "I'm").replace("l'll", "I'll")
-
-    # Remove SDH (Hearing Impaired) tags like (Music), [Screams]
-    text = re.sub(r'[\(\[].*?[\)\]]', '', text)
-    
-    # Remove musical notes
-    text = text.replace('♪', '')
-
-    # Collapse multiple spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    
-    return text
-
-
-def ocr_image(cv_img: np.ndarray) -> str:
-    """
-    Performs OCR on a single PGS bitmap (OpenCV format).
-    """
-    # 1. Handle Transparency (PGS is RGBA)
-    # We invert the alpha channel: Text (opaque) -> Black, Background (transparent) -> White
-    if cv_img.shape[2] == 4:
-        alpha = cv_img[:, :, 3]
-        processed_img = cv2.bitwise_not(alpha)
-    else:
-        gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
-        _, processed_img = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        processed_img = cv2.bitwise_not(processed_img)
-
-    # 2. Upscale (Critical for accuracy)
-    scale_factor = 3
-    height, width = processed_img.shape
-    processed_img = cv2.resize(processed_img, (width * scale_factor, height * scale_factor), interpolation=cv2.INTER_CUBIC)
-
-    # 3. Add Padding (White Border)
-    processed_img = cv2.copyMakeBorder(processed_img, 20, 20, 20, 20, cv2.BORDER_CONSTANT, value=255)
-
-    # 4. Run OCR
-    custom_config = r'--oem 3 --psm 6'
-    text = pytesseract.image_to_string(processed_img, config=custom_config)
-    
-    return clean_subtitle_text(text)
 
 
 def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
@@ -102,14 +40,20 @@ def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
     return subtitle_streams
 
 
-def find_subtitle_stream(video_file: str, subtitle_track_index: Optional[int] = None) -> Optional[int]:
+def find_subtitle_stream(
+    video_file: str, 
+    subtitle_track_index: Optional[int] = None
+) -> Optional[Tuple[int, SubtitleHandler]]:
     """
-    Find a suitable subtitle stream index using ffprobe.
+    Find a suitable subtitle stream and its handler.
 
-    - If subtitle_track_index is provided, validate and return it.
-    - If not, find the first English subtitle stream.
-    - If no English track is found, fall back to the first available subtitle stream.
-    - Return None if no subtitle tracks exist or the specified index is not found.
+    - If subtitle_track_index is provided, validate and use it.
+    - If not, find the first supported English subtitle stream.
+    - If no English track is found, fall back to the first supported subtitle stream.
+    - Return None if no supported subtitle tracks exist.
+    
+    Returns:
+        Tuple of (stream_index, SubtitleHandler) or None if not found/unsupported.
     """
     subtitle_tracks = get_subtitle_tracks(video_file)
 
@@ -117,197 +61,110 @@ def find_subtitle_stream(video_file: str, subtitle_track_index: Optional[int] = 
         logger.warning("No subtitle tracks found.")
         return None
 
+    def get_track_with_handler(track: Dict) -> Optional[Tuple[int, SubtitleHandler]]:
+        """Helper to get a track's index and handler if supported."""
+        codec_name = track.get('codec_name', '')
+        handler = get_handler_for_codec(codec_name)
+        if handler:
+            return (track.get('index'), handler)
+        return None
+
     # If a specific track index is provided, find and validate it
     if subtitle_track_index is not None:
         for track in subtitle_tracks:
             if track.get('index') == subtitle_track_index:
-                logger.info("Using user-specified subtitle stream at index %s", subtitle_track_index)
-                return subtitle_track_index
+                result = get_track_with_handler(track)
+                if result:
+                    logger.info("Using user-specified subtitle stream at index %s", subtitle_track_index)
+                    return result
+                else:
+                    codec = track.get('codec_name', 'unknown')
+                    logger.error("Subtitle track %s has unsupported codec: %s", subtitle_track_index, codec)
+                    return None
         logger.error("Specified subtitle track index %s not found.", subtitle_track_index)
         return None
 
-    # Otherwise, find the first English subtitle stream
-    english_stream_index = None
+    # Find the first supported English subtitle stream
     for track in subtitle_tracks:
         lang = track.get('tags', {}).get('language', 'eng')
         if lang.lower().startswith('en'):
-            english_stream_index = track.get('index')
-            logger.info("Found English subtitle stream at index %s", english_stream_index)
-            return english_stream_index
+            result = get_track_with_handler(track)
+            if result:
+                logger.info("Found English subtitle stream at index %s (codec: %s)", 
+                           result[0], track.get('codec_name'))
+                return result
 
-    # If no English stream, fall back to the first available subtitle stream
-    first_stream_index = subtitle_tracks[0].get('index')
-    logger.warning("No English subtitle found. Using first available subtitle stream at index %s", first_stream_index)
-    return first_stream_index
+    # Fall back to the first supported subtitle stream
+    for track in subtitle_tracks:
+        result = get_track_with_handler(track)
+        if result:
+            logger.warning("No English subtitle found. Using first supported stream at index %s", result[0])
+            return result
+    
+    # No supported subtitle formats found
+    codecs = [t.get('codec_name', 'unknown') for t in subtitle_tracks]
+    logger.warning("No supported subtitle formats found. Available codecs: %s", codecs)
+    return None
 
 
-def extract_sup_file(video_file: str, output_sup_path: str, subtitle_stream_index: int, offset_minutes: int = 0, scan_duration_minutes: int = 15) -> bool:
+
+def extract_subtitles(
+    video_file: str, 
+    subtitle_track_index: Optional[int] = None, 
+    offset_minutes: int = 0, 
+    max_frames: Optional[int] = None, 
+    scan_duration_minutes: int = 15, 
+    output_dir: Optional[str] = None
+) -> List[str]:
     """
-    Use ffmpeg to extract a subtitle stream to a SUP file.
+    Extracts subtitles from a video file.
+    
+    Automatically detects the subtitle format and uses the appropriate handler:
+    - PGS (Blu-ray): Extracts bitmap subtitles and performs OCR
+    - SRT (SubRip): Extracts text directly (no OCR needed)
     
     Args:
-        video_file: Path to the input video file
-        output_sup_path: Path where the SUP file should be saved
-        subtitle_stream_index: The ffprobe stream index of the subtitle (e.g., 0:s:1 for second subtitle stream)
-        offset_minutes: Skip the first N minutes
-        scan_duration_minutes: How many minutes to scan for subtitles
-    
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        # Calculate start and end times
-        start_time = offset_minutes * 60  # Convert to seconds
-        duration = scan_duration_minutes * 60  # Convert to seconds
-        
-        ffmpeg_cmd = [
-            'ffmpeg',
-            '-ss', str(start_time),
-            '-i', video_file,
-            '-t', str(duration),
-            '-map', f'0:{subtitle_stream_index}',
-            '-c', 'copy',
-            '-f', 'sup',
-            output_sup_path,
-            '-y'
-        ]
-        
-        logger.info("Extracting subtitle stream to SUP file...")
-        subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
-        
-        if os.path.exists(output_sup_path) and os.path.getsize(output_sup_path) > 0:
-            logger.debug("Successfully created SUP file: %s", output_sup_path)
-            return True
-        else:
-            logger.error("Failed to create SUP file or file is empty.")
-            return False
-            
-    except subprocess.CalledProcessError as e:
-        logger.error("Error extracting SUP file (ffmpeg exited with code %s).", e.returncode)
-        logger.error("  Command: %s", ' '.join(e.cmd))
-        logger.error("  Stderr:\n%s", e.stderr)
-        return False
-    except FileNotFoundError:
-        logger.error("Error: ffmpeg is not installed or not in your PATH. Please install it.")
-        return False
-
-
-def extract_text_from_sup(sup_file_path: str, max_subtitles: Optional[int] = None) -> List[str]:
-    """
-    Extracts text from SUP file up to `max_subtitles` entries.
-    
-    Args:
-        sup_file_path: Path to the SUP file
-        max_subtitles: Maximum number of subtitles to extract
-    
-    Returns:
-        list[str]: List of extracted subtitle strings
-    """
-    try:
-        pgs = PGSReader(sup_file_path)
-        subtitles = []
-        count = 0
-        
-        # Iterate through Display Sets
-        for ds in pgs.iter_displaysets():
-            
-            # Stop if we hit the limit
-            if max_subtitles is not None and count >= max_subtitles:
-                break
-
-            # Only process if this display set has an image (start of a subtitle)
-            if ds.has_image:
-                try:
-                    pil_image = make_image(
-                        ods=ds.ods[0],
-                        pds=ds.pds[0],
-                    )
-                    
-                    if pil_image:
-                        # Convert PIL (RGBA) -> OpenCV (BGRA)
-                        pil_image = pil_image.convert("RGBA")
-                        open_cv_image = np.array(pil_image)
-                        open_cv_image = open_cv_image[:, :, ::-1].copy()
-                        
-                        # Perform OCR
-                        text = ocr_image(open_cv_image)
-                        
-                        # Only add if we actually got text back (ignores empty glitches)
-                        if text:
-                            subtitles.append(text)
-                            logger.debug("  Extracted subtitle %d: \"%s\"", count + 1, text)
-                            count += 1
-                except Exception as e:
-                    logger.warning("  Error processing display set: %s", e)
-                    continue
-        
-        return subtitles
-        
-    except Exception as e:
-        logger.error("Error reading SUP file: %s", e)
-        return []
-
-
-def extract_subtitles(video_file: str, subtitle_track_index: Optional[int] = None, offset_minutes: int = 0, max_frames: Optional[int] = None, scan_duration_minutes: int = 15, output_dir: Optional[str] = None) -> List[str]:
-    """
-    Extracts subtitles from a video file using FFmpeg and OCR.
-    
-    This function:
-    1. Uses ffprobe to find the English subtitle stream
-    2. Uses ffmpeg to extract the subtitle stream to a SUP file
-    3. Extracts text from the SUP file using PGSReader and OCR
-    
-    Args:
-        video_file (str): Path to the video file.
-        subtitle_track_index (int): The index of the subtitle track to use.
-        offset_minutes (int): Skip the first N minutes of the video.
-        max_frames (int): Maximum number of subtitles to extract.
-        scan_duration_minutes (int): How many minutes of the video to scan for subtitles.
-        output_dir (str): Optional directory to save JSON output. If None, prints to console.
+        video_file: Path to the video file.
+        subtitle_track_index: The index of the subtitle track to use.
+        offset_minutes: Skip the first N minutes of the video.
+        max_frames: Maximum number of subtitles to extract.
+        scan_duration_minutes: How many minutes of the video to scan.
+        output_dir: Optional directory to save JSON output.
 
     Returns:
-        list[str]: A list of extracted subtitle strings.
+        List of extracted subtitle strings.
     """
     if not os.path.exists(video_file):
         logger.error("Error: File not found at %s", video_file)
         return []
 
-    # Find the English subtitle stream
-    subtitle_stream_index = find_subtitle_stream(video_file, subtitle_track_index)
-    if subtitle_stream_index is None:
+    # Find a suitable subtitle stream and its handler
+    result = find_subtitle_stream(video_file, subtitle_track_index)
+    if result is None:
         logger.error("Error: Could not find a suitable subtitle stream in the video file.")
         return []
-
-    all_subtitles = []
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        sup_file_path = os.path.join(temp_dir, "extracted.sup")
-        
-        # Extract the subtitle stream to a SUP file
-        if not extract_sup_file(
-            video_file,
-            sup_file_path,
-            subtitle_stream_index,
-            offset_minutes=offset_minutes,
-            scan_duration_minutes=scan_duration_minutes
-        ):
-            logger.error("Failed to extract subtitle stream to SUP file.")
-            return []
-        
-        # Extract text from the SUP file
-        logger.info("Performing OCR on subtitle frames...")
-        all_subtitles = extract_text_from_sup(sup_file_path, max_subtitles=max_frames)
+    stream_index, handler = result
+    
+    # Delegate extraction to the handler
+    logger.info("Extracting subtitles using %s...", handler.__class__.__name__)
+    all_subtitles = handler.extract_text(
+        video_file=video_file,
+        stream_index=stream_index,
+        offset_minutes=offset_minutes,
+        scan_duration_minutes=scan_duration_minutes,
+        max_subtitles=max_frames,
+    )
 
     # Save to JSON if output_dir is specified
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
-        # Create a safe filename from the video file
         base_name = os.path.splitext(os.path.basename(video_file))[0]
         output_file = os.path.join(output_dir, f"{base_name}_subtitles.json")
         
         output_data = {
             "source_file": video_file,
-            "subtitle_track_index": subtitle_stream_index,
+            "subtitle_track_index": stream_index,
             "offset_minutes": offset_minutes,
             "scan_duration_minutes": scan_duration_minutes,
             "subtitles": all_subtitles

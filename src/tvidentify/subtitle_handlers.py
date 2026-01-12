@@ -149,6 +149,11 @@ def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, imag
     Returns:
         Extracted and cleaned text string
     """
+
+    def alpha_is_mask(alpha: np.ndarray) -> bool:
+        # A real subtitle mask should have background near 0 and text near 255.
+        return (alpha.min() <= 5) and (alpha.max() >= 250) and (alpha.min() != alpha.max())
+
     # Save raw image if debug mode enabled
     if debug_dir:
         os.makedirs(debug_dir, exist_ok=True)
@@ -166,7 +171,10 @@ def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, imag
         if np.max(alpha) == 0:
             return ""
         
-        gray = alpha
+        if alpha_is_mask(alpha):
+            gray = alpha
+        else:
+            gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         
     elif len(img_array.shape) == 3:
         # RGB without alpha - convert to grayscale
@@ -187,11 +195,18 @@ def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, imag
     
     # Threshold to binary
     _, binary = cv2.threshold(upscaled, 127, 255, cv2.THRESH_BINARY)
-    
+
+    # after threshold
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
+
+    # if text is white on black (binary): close first, then open
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN,  kernel, iterations=1)
+
     # Invert: Tesseract expects black text on white background
     # Alpha channel has text=255 (white), we need text=0 (black)
     inverted = cv2.bitwise_not(binary)
-    
+
     # Add padding (Tesseract needs space around text)
     padded = cv2.copyMakeBorder(
         inverted, 20, 20, 20, 20, 

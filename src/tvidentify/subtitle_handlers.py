@@ -19,8 +19,11 @@ import cv2
 import numpy as np
 import pytesseract
 
+from PIL import Image
+
 from .pgsreader import PGSReader
 from .imagemaker import make_image
+from .vobsubreader import VobSubReader
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,78 @@ def ocr_image(cv_img: np.ndarray) -> str:
     # 4. Run OCR
     custom_config = r'--oem 3 --psm 6'
     text = pytesseract.image_to_string(processed_img, config=custom_config)
+    
+    return clean_subtitle_text(text)
+
+
+def ocr_vobsub_image(pil_img: Image.Image) -> str:
+    """
+    OCR a VobSub bitmap with preprocessing optimized for the improved decoder.
+    
+    The VobSub decoder produces clean RGBA images where:
+    - Text has alpha=255 (fully opaque)
+    - Background has alpha=0 (transparent)
+    
+    Pipeline:
+    1. Extract alpha channel (text mask)
+    2. Upscale 3x for ~300 DPI
+    3. Threshold and invert (black text on white)
+    4. Add padding
+    5. OCR with Tesseract
+    
+    Args:
+        pil_img: PIL Image (RGBA from VobSubReader)
+        
+    Returns:
+        Extracted and cleaned text string
+    """
+    img_array = np.array(pil_img)
+    
+    # Handle different input formats
+    if len(img_array.shape) == 3 and img_array.shape[2] == 4:
+        # RGBA image - use alpha channel as text mask
+        alpha = img_array[:, :, 3]
+        
+        # Skip if fully transparent
+        if np.max(alpha) == 0:
+            return ""
+        
+        gray = alpha
+        
+    elif len(img_array.shape) == 3:
+        # RGB without alpha - convert to grayscale
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        # Already grayscale
+        gray = img_array
+    
+    # Upscale 3x for better OCR (target ~300 DPI)
+    scale_factor = 3
+    upscaled = cv2.resize(
+        gray,
+        None,
+        fx=scale_factor,
+        fy=scale_factor,
+        interpolation=cv2.INTER_CUBIC
+    )
+    
+    # Threshold to binary
+    _, binary = cv2.threshold(upscaled, 127, 255, cv2.THRESH_BINARY)
+    
+    # Invert: Tesseract expects black text on white background
+    # Alpha channel has text=255 (white), we need text=0 (black)
+    inverted = cv2.bitwise_not(binary)
+    
+    # Add padding (Tesseract needs space around text)
+    padded = cv2.copyMakeBorder(
+        inverted, 20, 20, 20, 20, 
+        cv2.BORDER_CONSTANT, value=255
+    )
+    
+    # OCR with optimal config
+    # OEM 3: LSTM + legacy (best accuracy)
+    # PSM 6: Assume uniform block of text
+    text = pytesseract.image_to_string(padded, config='--oem 3 --psm 6')
     
     return clean_subtitle_text(text)
 
@@ -230,6 +305,151 @@ class PGSHandler(SubtitleHandler):
             
         except Exception as e:
             logger.error("Error reading SUP file: %s", e)
+            return []
+
+
+# =============================================================================
+# VobSub Handler (DVD bitmap subtitles)
+# =============================================================================
+
+class VobSubHandler(SubtitleHandler):
+    """Handler for VobSub (DVD) bitmap subtitles. Requires OCR."""
+    
+    def extract_text(
+        self,
+        video_file: str,
+        stream_index: int,
+        offset_minutes: int = 0,
+        scan_duration_minutes: int = 15,
+        max_subtitles: Optional[int] = None,
+    ) -> List[str]:
+        """Extract text from VobSub subtitles using FFmpeg extraction and OCR."""
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            idx_file_path = os.path.join(temp_dir, "extracted.idx")
+            sub_file_path = os.path.join(temp_dir, "extracted.sub")
+            
+            # Extract VobSub files using FFmpeg
+            if not self._extract_vobsub_files(
+                video_file, idx_file_path, stream_index,
+                offset_minutes, scan_duration_minutes
+            ):
+                return []
+            
+            # OCR the VobSub files
+            return self.extract_from_idx(
+                idx_file_path, 
+                max_subtitles=max_subtitles,
+                offset_seconds=offset_minutes * 60,
+                duration_seconds=scan_duration_minutes * 60
+            )
+    
+    def _extract_vobsub_files(
+        self,
+        video_file: str,
+        output_idx_path: str,
+        stream_index: int,
+        offset_minutes: int,
+        scan_duration_minutes: int,
+    ) -> bool:
+        """Use ffmpeg to extract a VobSub subtitle stream to idx/sub files."""
+        try:
+            start_time = offset_minutes * 60
+            duration = scan_duration_minutes * 60
+            
+            # FFmpeg outputs VobSub as idx + sub pair
+            # The -c:s copy preserves the format
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-ss', str(start_time),
+                '-i', video_file,
+                '-t', str(duration),
+                '-map', f'0:{stream_index}',
+                '-c:s', 'dvdsub',
+                output_idx_path,
+                '-y'
+            ]
+            
+            logger.info("Extracting VobSub subtitle stream...")
+            subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+            
+            # Check both files exist
+            sub_path = output_idx_path.rsplit('.', 1)[0] + '.sub'
+            if os.path.exists(output_idx_path) and os.path.exists(sub_path):
+                logger.debug("Successfully created VobSub files: %s", output_idx_path)
+                return True
+            else:
+                logger.error("Failed to create VobSub files.")
+                return False
+                
+        except subprocess.CalledProcessError as e:
+            logger.error("Error extracting VobSub files: %s", e.stderr)
+            return False
+        except FileNotFoundError:
+            logger.error("ffmpeg is not installed or not in your PATH.")
+            return False
+    
+    def extract_from_idx(
+        self,
+        idx_file_path: str,
+        max_subtitles: Optional[int] = None,
+        offset_seconds: int = 0,
+        duration_seconds: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Extract text from standalone VobSub idx/sub files.
+        
+        This is useful for directly OCR'ing extracted VobSub files
+        without going through a video file.
+        
+        Args:
+            idx_file_path: Path to the .idx file (expects .sub in same directory)
+            max_subtitles: Maximum number of subtitles to extract
+            offset_seconds: Skip subtitles before this timestamp
+            duration_seconds: Only process subtitles within this duration from offset
+            
+        Returns:
+            List of extracted subtitle strings
+        """
+        try:
+            reader = VobSubReader(idx_file_path)
+            subtitles = []
+            count = 0
+            
+            end_time_ms = None
+            if duration_seconds is not None:
+                end_time_ms = (offset_seconds + duration_seconds) * 1000
+            
+            for event in reader.iter_events(max_events=None):
+                if max_subtitles is not None and count >= max_subtitles:
+                    break
+                
+                # Apply time filters
+                if event.timestamp_ms < offset_seconds * 1000:
+                    continue
+                if end_time_ms is not None and event.timestamp_ms > end_time_ms:
+                    break
+                
+                if event.image:
+                    try:
+                        text = ocr_vobsub_image(event.image)
+                        
+                        if text:
+                            subtitles.append(text)
+                            logger.debug(
+                                "Extracted VobSub subtitle %d at %dms: \"%s\"",
+                                count + 1, event.timestamp_ms, text
+                            )
+                            count += 1
+                    except Exception as e:
+                        logger.warning("Error OCR'ing VobSub image: %s", e)
+                        continue
+            
+            logger.info("Extracted %d subtitles from VobSub", len(subtitles))
+            return subtitles
+            
+        except Exception as e:
+            logger.error("Error reading VobSub files: %s", e)
             return []
 
 
@@ -368,8 +588,8 @@ class SRTHandler(SubtitleHandler):
 CODEC_HANDLERS = {
     'hdmv_pgs_subtitle': PGSHandler,
     'subrip': SRTHandler,
+    'dvd_subtitle': VobSubHandler,
     # Future handlers:
-    # 'dvd_subtitle': VobSubHandler,
     # 'ass': ASSHandler,
     # 'ssa': SSAHandler,
 }

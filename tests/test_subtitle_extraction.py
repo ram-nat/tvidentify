@@ -168,10 +168,11 @@ class TestHandlerSelection:
         handler = get_handler_for_codec("unknown_codec")
         assert handler is None
 
-    def test_vobsub_codec_returns_none(self):
-        """VobSub codec is not yet supported."""
+    def test_vobsub_codec_returns_handler(self):
+        """VobSub codec returns VobSubHandler."""
+        from tvidentify.subtitle_handlers import VobSubHandler
         handler = get_handler_for_codec("dvd_subtitle")
-        assert handler is None  # Future: should return VobSubHandler
+        assert isinstance(handler, VobSubHandler)
 
 
 class TestSubtitleFingerprint:

@@ -126,7 +126,7 @@ def ocr_image(cv_img: np.ndarray) -> str:
     return clean_subtitle_text(text)
 
 
-def ocr_vobsub_image(pil_img: Image.Image) -> str:
+def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, image_name: str = "") -> str:
     """
     OCR a VobSub bitmap with preprocessing optimized for the improved decoder.
     
@@ -143,10 +143,18 @@ def ocr_vobsub_image(pil_img: Image.Image) -> str:
     
     Args:
         pil_img: PIL Image (RGBA from VobSubReader)
+        debug_dir: Optional directory to save debug images
+        image_name: Prefix for debug image filenames (e.g., "sub_00012345")
         
     Returns:
         Extracted and cleaned text string
     """
+    # Save raw image if debug mode enabled
+    if debug_dir:
+        os.makedirs(debug_dir, exist_ok=True)
+        raw_path = os.path.join(debug_dir, f"{image_name}_raw.png")
+        pil_img.save(raw_path)
+    
     img_array = np.array(pil_img)
     
     # Handle different input formats
@@ -190,9 +198,14 @@ def ocr_vobsub_image(pil_img: Image.Image) -> str:
         cv2.BORDER_CONSTANT, value=255
     )
     
+    # Save processed image if debug mode enabled
+    if debug_dir:
+        processed_path = os.path.join(debug_dir, f"{image_name}_processed.png")
+        cv2.imwrite(processed_path, padded)
+    
     # OCR with optimal config
     # OEM 3: LSTM + legacy (best accuracy)
-    # PSM 6: Assume uniform block of text
+    # PSM 6: Assume uniform block of text (works better for multi-line subtitles)
     text = pytesseract.image_to_string(padded, config='--oem 3 --psm 6')
     
     return clean_subtitle_text(text)
@@ -322,14 +335,15 @@ class VobSubHandler(SubtitleHandler):
         offset_minutes: int = 0,
         scan_duration_minutes: int = 15,
         max_subtitles: Optional[int] = None,
+        debug_dir: Optional[str] = None,
     ) -> List[str]:
-        """Extract text from VobSub subtitles using FFmpeg extraction and OCR."""
+        """Extract text from VobSub subtitles using mkvextract and OCR."""
         
         with tempfile.TemporaryDirectory() as temp_dir:
             idx_file_path = os.path.join(temp_dir, "extracted.idx")
             sub_file_path = os.path.join(temp_dir, "extracted.sub")
             
-            # Extract VobSub files using FFmpeg
+            # Extract VobSub files using mkvextract
             if not self._extract_vobsub_files(
                 video_file, idx_file_path, stream_index,
                 offset_minutes, scan_duration_minutes
@@ -341,7 +355,8 @@ class VobSubHandler(SubtitleHandler):
                 idx_file_path, 
                 max_subtitles=max_subtitles,
                 offset_seconds=offset_minutes * 60,
-                duration_seconds=scan_duration_minutes * 60
+                duration_seconds=scan_duration_minutes * 60,
+                debug_dir=debug_dir
             )
     
     def _extract_vobsub_files(
@@ -484,6 +499,7 @@ class VobSubHandler(SubtitleHandler):
         max_subtitles: Optional[int] = None,
         offset_seconds: int = 0,
         duration_seconds: Optional[int] = None,
+        debug_dir: Optional[str] = None,
     ) -> List[str]:
         """
         Extract text from standalone VobSub idx/sub files.
@@ -496,6 +512,7 @@ class VobSubHandler(SubtitleHandler):
             max_subtitles: Maximum number of subtitles to extract
             offset_seconds: Skip subtitles before this timestamp
             duration_seconds: Only process subtitles within this duration from offset
+            debug_dir: Optional directory to save debug images
             
         Returns:
             List of extracted subtitle strings
@@ -521,7 +538,13 @@ class VobSubHandler(SubtitleHandler):
                 
                 if event.image:
                     try:
-                        text = ocr_vobsub_image(event.image)
+                        # Use timestamp for unique debug image names
+                        timestamp_str = f"{event.timestamp_ms:08d}"
+                        text = ocr_vobsub_image(
+                            event.image,
+                            debug_dir=debug_dir,
+                            image_name=f"sub_{timestamp_str}"
+                        )
                         
                         if text:
                             subtitles.append(text)

@@ -114,7 +114,8 @@ def extract_subtitles(
     offset_minutes: int = 0, 
     max_frames: Optional[int] = None, 
     scan_duration_minutes: int = 15, 
-    output_dir: Optional[str] = None
+    output_dir: Optional[str] = None,
+    debug_dir: Optional[str] = None
 ) -> List[str]:
     """
     Extracts subtitles from a video file.
@@ -130,6 +131,7 @@ def extract_subtitles(
         max_frames: Maximum number of subtitles to extract.
         scan_duration_minutes: How many minutes of the video to scan.
         output_dir: Optional directory to save JSON output.
+        debug_dir: Optional directory to save debug images (VobSub only).
 
     Returns:
         List of extracted subtitle strings.
@@ -148,13 +150,26 @@ def extract_subtitles(
     
     # Delegate extraction to the handler
     logger.info("Extracting subtitles using %s...", handler.__class__.__name__)
-    all_subtitles = handler.extract_text(
-        video_file=video_file,
-        stream_index=stream_index,
-        offset_minutes=offset_minutes,
-        scan_duration_minutes=scan_duration_minutes,
-        max_subtitles=max_frames,
-    )
+    
+    # VobSubHandler supports debug_dir for saving OCR debug images
+    from .subtitle_handlers import VobSubHandler
+    if isinstance(handler, VobSubHandler) and debug_dir:
+        all_subtitles = handler.extract_text(
+            video_file=video_file,
+            stream_index=stream_index,
+            offset_minutes=offset_minutes,
+            scan_duration_minutes=scan_duration_minutes,
+            max_subtitles=max_frames,
+            debug_dir=debug_dir,
+        )
+    else:
+        all_subtitles = handler.extract_text(
+            video_file=video_file,
+            stream_index=stream_index,
+            offset_minutes=offset_minutes,
+            scan_duration_minutes=scan_duration_minutes,
+            max_subtitles=max_frames,
+        )
 
     # Save to JSON if output_dir is specified
     if output_dir:
@@ -187,6 +202,7 @@ def add_extraction_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument('--max-frames', type=int, default=None, help='Maximum number of subtitles to extract.')
     group.add_argument('--subtitle-track', type=int, default=None, help='The subtitle track index to use. If not specified, finds the first English track. If no english subtitle tracks are available, finds the first subtitle track.')
     group.add_argument('--offset', type=int, default=0, help='Skip the first N minutes of the video.')
+    group.add_argument('--debug-dir', type=str, default=None, help='Directory to save debug images (VobSub OCR).')
     group.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
     group.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')
 
@@ -218,7 +234,8 @@ def main():
         offset_minutes=args.offset,
         max_frames=args.max_frames,
         scan_duration_minutes=args.scan_duration,
-        output_dir=args.output_dir
+        output_dir=args.output_dir,
+        debug_dir=args.debug_dir
     )
 
     logger.info("--- All Extracted Subtitles ---")

@@ -352,42 +352,131 @@ class VobSubHandler(SubtitleHandler):
         offset_minutes: int,
         scan_duration_minutes: int,
     ) -> bool:
-        """Use ffmpeg to extract a VobSub subtitle stream to idx/sub files."""
+        """
+        Use mkvextract to extract a VobSub subtitle stream to idx/sub files.
+        
+        Note: mkvextract uses track IDs (from mkvmerge --identify) which differ
+        from ffmpeg stream indices. We need to find the correct track ID.
+        """
         try:
-            start_time = offset_minutes * 60
-            duration = scan_duration_minutes * 60
+            import json
             
-            # FFmpeg outputs VobSub as idx + sub pair
-            # The -c:s copy preserves the format
-            ffmpeg_cmd = [
-                'ffmpeg',
-                '-ss', str(start_time),
-                '-i', video_file,
-                '-t', str(duration),
-                '-map', f'0:{stream_index}',
-                '-c:s', 'dvdsub',
-                output_idx_path,
-                '-y'
+            # Step 1: Get track ID from mkvmerge --identify
+            track_id = self._get_mkvextract_track_id(video_file, stream_index)
+            if track_id is None:
+                logger.error("Could not find track ID for stream index %d", stream_index)
+                return False
+            
+            logger.info("Found mkvextract track ID %d for ffmpeg stream %d", track_id, stream_index)
+            
+            # Step 2: Extract using mkvextract
+            # mkvextract outputs .idx and .sub files when extracting VobSub
+            output_base = output_idx_path.rsplit('.', 1)[0]
+            
+            mkvextract_cmd = [
+                'mkvextract', 'tracks', video_file,
+                f'{track_id}:{output_base}'
             ]
             
-            logger.info("Extracting VobSub subtitle stream...")
-            subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+            logger.info("Extracting VobSub with mkvextract...")
+            result = subprocess.run(
+                mkvextract_cmd, 
+                check=True, 
+                capture_output=True, 
+                text=True
+            )
             
-            # Check both files exist
-            sub_path = output_idx_path.rsplit('.', 1)[0] + '.sub'
-            if os.path.exists(output_idx_path) and os.path.exists(sub_path):
-                logger.debug("Successfully created VobSub files: %s", output_idx_path)
+            # mkvextract creates .idx and .sub files
+            idx_path = output_base + '.idx'
+            sub_path = output_base + '.sub'
+            
+            if os.path.exists(idx_path) and os.path.exists(sub_path):
+                logger.debug("Successfully created VobSub files: %s", idx_path)
                 return True
             else:
-                logger.error("Failed to create VobSub files.")
+                logger.error("mkvextract did not create expected VobSub files")
                 return False
                 
         except subprocess.CalledProcessError as e:
             logger.error("Error extracting VobSub files: %s", e.stderr)
             return False
         except FileNotFoundError:
-            logger.error("ffmpeg is not installed or not in your PATH.")
+            logger.error("mkvextract is not installed or not in your PATH. Install mkvtoolnix.")
             return False
+    
+    def _get_mkvextract_track_id(self, video_file: str, ffmpeg_stream_index: int) -> Optional[int]:
+        """
+        Get the mkvextract track ID corresponding to an ffmpeg stream index.
+        
+        mkvextract track IDs are 0-based and only count actual tracks,
+        while ffmpeg stream indices include all streams.
+        
+        We use mkvmerge --identify -J to get track info.
+        """
+        import json
+        
+        try:
+            result = subprocess.run(
+                ['mkvmerge', '--identify', '-J', video_file],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            info = json.loads(result.stdout)
+            tracks = info.get('tracks', [])
+            
+            # Find subtitle tracks and match to ffmpeg stream index
+            # ffmpeg orders streams as: video, audio, subtitle
+            # mkvmerge reports tracks in file order
+            
+            # Count how many streams of each type come before our target
+            # to find the matching mkvextract track ID
+            for track in tracks:
+                track_id = track.get('id')
+                track_type = track.get('type')
+                properties = track.get('properties', {})
+                
+                # mkvmerge track ID + 1 typically equals stream position
+                # But subtitle tracks specifically: we need to find the one
+                # that matches our ffmpeg stream index
+                
+                # Simple approach: subtitle track with matching codec
+                if track_type == 'subtitles':
+                    codec = properties.get('codec_id', '')
+                    # VobSub is identified as S_VOBSUB
+                    if 'VOBSUB' in codec.upper():
+                        # Check if this track's position matches ffmpeg index
+                        # mkvmerge lists tracks in order, so we can use track_id
+                        # as an approximation
+                        
+                        # For MKV files, track IDs typically align with 
+                        # ffmpeg stream indices for subtitles
+                        # We compare the number property if available
+                        track_num = properties.get('number', track_id + 1)
+                        
+                        # ffmpeg stream index for subtitles in MKV is usually
+                        # the track_id + 1 (accounting for 0-indexing)
+                        if track_id == ffmpeg_stream_index or track_num - 1 == ffmpeg_stream_index:
+                            return track_id
+            
+            # Fallback: find any subtitle track with matching index pattern
+            subtitle_count = 0
+            for track in tracks:
+                if track.get('type') == 'subtitles':
+                    track_id = track.get('id')
+                    # Try direct match
+                    if track_id == ffmpeg_stream_index:
+                        return track_id
+                    subtitle_count += 1
+            
+            # Last resort: assume track ID equals stream index
+            logger.warning("Could not verify track ID, using stream index as fallback")
+            return ffmpeg_stream_index
+            
+        except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError) as e:
+            logger.error("Error identifying tracks: %s", e)
+            return None
     
     def extract_from_idx(
         self,

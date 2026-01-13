@@ -72,12 +72,13 @@ Logging:
 
 - **Subtitle Extraction**: 
   - `subtitle_extractor.py` is the stand-alone module for this.
-  - Extracts English subtitle stream (expects and handles PGS only)
+  - Extracts subtitle stream (supports PGS, VobSub and SRT formats)
   - You can specify starting offset and duration of subtitle stream to extract (so entire file is not processed). You can also specify the maximum number of subtitle events to extract.
     - `--offset` to specify starting offset in minutes
     - `--scan-duration` to specify how many minutes from starting offset you want to extract.
     - `--max-frames` to specify how many subtitle events to extract.
-  - Uses OCR (`pytesseract`) and some very basic regex clean-up to get subtitle text.
+  - Uses OCR (`pytesseract`) for bitmap subtitles (PGS/VobSub) and direct text extraction for SRT.
+  - Applies regex clean-up to normalize text output.
   - PGS parsing code is from https://github.com/EzraBC/pgsreader
   - Use `--output-dir` to store output in json format.
 - **Episode Identification**
@@ -232,15 +233,16 @@ Processes multiple video files:
 - `ffmpeg` - For video processing
 - `ffprobe` - For reading video metadata (comes with ffmpeg)
 - `tesseract-ocr` - For optical character recognition (OCR) on subtitle images
+- `mkvtoolnix` - For extracting VobSub subtitles (`mkvextract` and `mkvmerge`)
 
 Install on Ubuntu/Debian:
 ```bash
-sudo apt-get install ffmpeg tesseract-ocr
+sudo apt-get install ffmpeg tesseract-ocr mkvtoolnix
 ```
 
 Install on macOS:
 ```bash
-brew install ffmpeg tesseract
+brew install ffmpeg tesseract mkvtoolnix
 ```
 
 ### Python Dependencies

@@ -23,7 +23,9 @@ from PIL import Image
 
 from .pgsreader import PGSReader
 from .imagemaker import make_image
+from .imagemaker import make_image
 from .vobsubreader import VobSubReader
+from .utils import check_ocr_tools, check_vobsub_tools
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +59,17 @@ class SubtitleHandler(ABC):
         Returns:
             List of extracted subtitle strings
         """
-        pass
+        return []
+
+    def check_tools(self) -> bool:
+        """
+        Check if required tools for this handler are available.
+        Can be overridden by subclasses to add specific checks.
+        
+        Returns:
+            bool: True if tools are available, False otherwise.
+        """
+        return True
 
 
 # =============================================================================
@@ -229,6 +241,10 @@ def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, imag
 class PGSHandler(SubtitleHandler):
     """Handler for PGS/SUP bitmap subtitles (Blu-ray). Requires OCR."""
     
+    def check_tools(self) -> bool:
+        """Checks for OCR tools (Tesseract)."""
+        return check_ocr_tools()
+
     def extract_text(
         self,
         video_file: str,
@@ -343,6 +359,13 @@ class PGSHandler(SubtitleHandler):
 class VobSubHandler(SubtitleHandler):
     """Handler for VobSub (DVD) bitmap subtitles. Requires OCR."""
     
+    def check_tools(self) -> bool:
+        """Checks for OCR tools (Tesseract) and VobSub extraction tools (mkvextract)."""
+        # Run all checks so user sees all missing dependencies at once
+        ocr_ok = check_ocr_tools()
+        vobsub_tools_ok = check_vobsub_tools()
+        return ocr_ok and vobsub_tools_ok
+
     def extract_text(
         self,
         video_file: str,

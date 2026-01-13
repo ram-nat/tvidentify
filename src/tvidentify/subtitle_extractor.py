@@ -151,6 +151,11 @@ def extract_subtitles(
     # Delegate extraction to the handler
     logger.info("Extracting subtitles using %s...", handler.__class__.__name__)
     
+    # Check if required tools for this specific handler are available
+    if not handler.check_tools():
+        logger.error("Required tools for %s are missing or not found.", handler.__class__.__name__)
+        return []
+
     # VobSubHandler supports debug_dir for saving OCR debug images
     from .subtitle_handlers import VobSubHandler
     if isinstance(handler, VobSubHandler) and debug_dir:

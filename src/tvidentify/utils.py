@@ -143,27 +143,60 @@ def check_api_key(provider: str) -> bool:
         
     return True
 
-def check_required_tools() -> bool:
+def _check_tool_availability(tools: list[tuple[str, str]]) -> bool:
     """
-    Check if required tools are installed: ffmpeg, ffprobe, and tesseract.
+    Helper to check availability of a list of tools.
     
+    Args:
+        tools: List of (binary_name, version_flag) tuples.
+        
     Returns:
-        bool: True if all tools are available, False otherwise
+        bool: True if all tools are available.
     """
     logger = logging.getLogger(__name__)
-    tools = [
-        ('ffmpeg', 'ffmpeg', '-version'),
-        ('ffprobe', 'ffprobe', '-version'),
-        ('tesseract', 'Tesseract OCR', '--version')
-    ]
-    
     all_available = True
-    for tool_cmd, tool_name, arg in tools:
-        try:
-            subprocess.run([tool_cmd, arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            logger.debug("%s is available", tool_name)
-        except FileNotFoundError:
-            logger.error("%s is not installed or not in your PATH. Please install it.", tool_name)
-            all_available = False
     
+    for binary, flag in tools:
+        try:
+            subprocess.run([binary, flag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            logger.debug("%s is available", binary)
+        except FileNotFoundError:
+            logger.error("%s is not installed or not in your PATH. Please install it.", binary)
+            all_available = False
+            
     return all_available
+
+def check_required_tools() -> bool:
+    """
+    Check if base required tools are installed: ffmpeg and ffprobe.
+    
+    Returns:
+        bool: True if base tools are available, False otherwise
+    """
+    return _check_tool_availability([
+        ('ffmpeg', '-version'),
+        ('ffprobe', '-version')
+    ])
+
+def check_ocr_tools() -> bool:
+    """
+    Check if OCR tools are installed: tesseract.
+    
+    Returns:
+        bool: True if tesseract is available, False otherwise
+    """
+    return _check_tool_availability([
+        ('tesseract', '--version')
+    ])
+
+def check_vobsub_tools() -> bool:
+    """
+    Check if VobSub extraction tools are installed: mkvextract and mkvmerge.
+    
+    Returns:
+        bool: True if mkvextract and mkvmerge are available, False otherwise
+    """
+    return _check_tool_availability([
+        ('mkvextract', '--version'),
+        ('mkvmerge', '--version')
+    ])

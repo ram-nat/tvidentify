@@ -46,8 +46,8 @@ class TestRequiredToolsCheck:
         
         assert check_required_tools() is True
         
-        # Verify all three tools were checked
-        assert mock_run.call_count == 3
+        # Verify base tools (ffmpeg, ffprobe) were checked
+        assert mock_run.call_count == 2
 
     def test_required_tools_check_fails_when_missing(self, mocker):
         """When a tool is missing, returns False."""
@@ -60,3 +60,23 @@ class TestRequiredToolsCheck:
         mocker.patch("subprocess.run", side_effect=side_effect)
         
         assert check_required_tools() is False
+
+    def test_ocr_tools_check_passes(self, mocker):
+        """OCR tools check verifies tesseract."""
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = MagicMock(returncode=0)
+        
+        from tvidentify.utils import check_ocr_tools
+        assert check_ocr_tools() is True
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0][0] == 'tesseract'
+
+    def test_vobsub_tools_check_passes(self, mocker):
+        """VobSub tools check verifies mkvextract and mkvmerge."""
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = MagicMock(returncode=0)
+        
+        from tvidentify.utils import check_vobsub_tools
+        assert check_vobsub_tools() is True
+        # Checks mkvextract and mkvmerge
+        assert mock_run.call_count == 2

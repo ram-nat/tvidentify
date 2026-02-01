@@ -224,6 +224,8 @@ def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, imag
         inverted, 20, 20, 20, 20, 
         cv2.BORDER_CONSTANT, value=255
     )
+
+    padded = cv2.bitwise_not(padded)
     
     # Save processed image if debug mode enabled
     if debug_dir:

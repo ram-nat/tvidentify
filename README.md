@@ -1,6 +1,6 @@
 # TVIdentify [![PyPI Downloads](https://static.pepy.tech/personalized-badge/tvidentify?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/tvidentify)
 
-Python tool for automatically identifying and renaming TV Show episodes for Plex given the video files and series name. Identifies TV show episodes from video files using OCR on PGS subtitles and LLM analysis of subtitles.
+Python tool for automatically identifying and renaming TV Show episodes for Plex given the video files and series name. Identifies TV show episodes from video files using OCR on PGS/VobSub or directly use SRT subtitles and LLM analysis of subtitles.
 
 ## Get Started
 

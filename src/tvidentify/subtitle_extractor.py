@@ -42,7 +42,10 @@ def get_subtitle_tracks(video_file: str) -> List[Dict[str, Any]]:
 
 def find_subtitle_stream(
     video_file: str, 
-    subtitle_track_index: Optional[int] = None
+    subtitle_track_index: Optional[int] = None,
+    ocr_engine: str = 'ollama',
+    ollama_host: Optional[str] = None,
+    ollama_model: str = 'glm-ocr'
 ) -> Optional[Tuple[int, SubtitleHandler]]:
     """
     Find a suitable subtitle stream and its handler.
@@ -64,7 +67,12 @@ def find_subtitle_stream(
     def get_track_with_handler(track: Dict) -> Optional[Tuple[int, SubtitleHandler]]:
         """Helper to get a track's index and handler if supported."""
         codec_name = track.get('codec_name', '')
-        handler = get_handler_for_codec(codec_name)
+        handler = get_handler_for_codec(
+            codec_name,
+            ocr_engine=ocr_engine,
+            ollama_host=ollama_host,
+            ollama_model=ollama_model
+        )
         if handler:
             return (track.get('index'), handler)
         return None
@@ -115,7 +123,10 @@ def extract_subtitles(
     max_frames: Optional[int] = None, 
     scan_duration_minutes: int = 15, 
     output_dir: Optional[str] = None,
-    debug_dir: Optional[str] = None
+    debug_dir: Optional[str] = None,
+    ocr_engine: str = 'ollama',
+    ollama_host: Optional[str] = None,
+    ollama_model: str = 'glm-ocr'
 ) -> List[str]:
     """
     Extracts subtitles from a video file.
@@ -141,7 +152,13 @@ def extract_subtitles(
         return []
 
     # Find a suitable subtitle stream and its handler
-    result = find_subtitle_stream(video_file, subtitle_track_index)
+    result = find_subtitle_stream(
+        video_file, 
+        subtitle_track_index,
+        ocr_engine=ocr_engine,
+        ollama_host=ollama_host,
+        ollama_model=ollama_model
+    )
     if result is None:
         logger.error("Error: Could not find a suitable subtitle stream in the video file.")
         return []
@@ -165,7 +182,7 @@ def extract_subtitles(
             offset_minutes=offset_minutes,
             scan_duration_minutes=scan_duration_minutes,
             max_subtitles=max_frames,
-            debug_dir=debug_dir,
+            debug_dir=debug_dir
         )
     else:
         all_subtitles = handler.extract_text(
@@ -173,7 +190,7 @@ def extract_subtitles(
             stream_index=stream_index,
             offset_minutes=offset_minutes,
             scan_duration_minutes=scan_duration_minutes,
-            max_subtitles=max_frames,
+            max_subtitles=max_frames
         )
 
     # Save to JSON if output_dir is specified
@@ -210,6 +227,9 @@ def add_extraction_args(parser: argparse.ArgumentParser) -> None:
     group.add_argument('--debug-dir', type=str, default=None, help='Directory to save debug images (VobSub OCR).')
     group.add_argument('--scan-duration', type=int, default=15, help='How many minutes of the video to scan for subtitles from the offset (default: 15).')
     group.add_argument('--output-dir', type=str, default=None, help='Optional directory to save JSON output instead of printing to console.')
+    group.add_argument('--ocr-engine', type=str, choices=['ollama', 'tesseract'], default='ollama', help='The OCR engine to use for image-based subtitles.')
+    group.add_argument('--ollama-host', type=str, default=None, help='The Ollama API endpoint URL (default is local instance).')
+    group.add_argument('--ollama-model', type=str, default='glm-ocr', help='The Ollama model to use for OCR (default: glm-ocr).')
 
 def main():
     parser = argparse.ArgumentParser(description='Extract subtitles from a video file using FFmpeg and OCR.')
@@ -240,7 +260,10 @@ def main():
         max_frames=args.max_frames,
         scan_duration_minutes=args.scan_duration,
         output_dir=args.output_dir,
-        debug_dir=args.debug_dir
+        debug_dir=args.debug_dir,
+        ocr_engine=args.ocr_engine,
+        ollama_host=args.ollama_host,
+        ollama_model=args.ollama_model
     )
 
     logger.info("--- All Extracted Subtitles ---")

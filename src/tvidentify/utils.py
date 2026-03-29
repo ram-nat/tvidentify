@@ -200,3 +200,47 @@ def check_vobsub_tools() -> bool:
         ('mkvextract', '--version'),
         ('mkvmerge', '--version')
     ])
+
+def check_ollama_tools(model_name: str, host: Optional[str] = None) -> bool:
+    """
+    Check if the python 'ollama' package is installed and if the requested model is available.
+    
+    Args:
+        model_name: The name of the model to check.
+        host: Optional Ollama endpoint host.
+        
+    Returns:
+        bool: True if package is installed and model exists, False otherwise.
+    """
+    logger = logging.getLogger(__name__)
+    try:
+        import ollama
+    except ImportError:
+        logger.error("The 'ollama' python package is required for the ollama OCR engine. Please install it with 'pip install ollama'.")
+        return False
+        
+    try:
+        client = ollama.Client(host=host) if host else ollama
+        models_response = client.list()
+        
+        # Ollama library returns 'models' containing objects or dicts
+        models_list = models_response.get('models', []) if isinstance(models_response, dict) else getattr(models_response, 'models', models_response)
+        
+        available_models = []
+        for m in models_list:
+            if isinstance(m, dict):
+                available_models.append(m.get('model', m.get('name', '')))
+            else:
+                available_models.append(getattr(m, 'model', getattr(m, 'name', '')))
+        
+        # We look for a partial or exact match
+        for av_model in available_models:
+            if av_model == model_name or av_model.startswith(f"{model_name}:"):
+                logger.debug("Ollama model '%s' is available.", av_model)
+                return True
+                
+        logger.error("Ollama model '%s' is not available. Please pull it first with: ollama pull %s", model_name, model_name)
+        return False
+    except Exception as e:
+        logger.error("Failed to connect to Ollama (host=%s) or fetch models: %s", host or "default", e)
+        return False

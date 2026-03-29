@@ -12,7 +12,7 @@ from .utils import check_required_tools, setup_logging, DEFAULT_MODELS, add_logg
 
 logger = logging.getLogger(__name__)
 
-def get_subtitle_fingerprint(video_file: str, subtitle_track_index: Optional[int], offset_minutes: int, scan_duration_minutes: int, num_events: int = 20) -> Tuple[Optional[Tuple[int, ...]], Optional[List[str]]]:
+def get_subtitle_fingerprint(video_file: str, subtitle_track_index: Optional[int], offset_minutes: int, scan_duration_minutes: int, num_events: int = 20, ocr_engine: str = 'ollama', ollama_host: Optional[str] = None, ollama_model: str = 'glm-ocr') -> Tuple[Optional[Tuple[int, ...]], Optional[List[str]]]:
     """
     Get a fingerprint of extracted subtitles for duplicate detection.
     
@@ -35,7 +35,10 @@ def get_subtitle_fingerprint(video_file: str, subtitle_track_index: Optional[int
             subtitle_track_index=subtitle_track_index,
             offset_minutes=offset_minutes,
             max_frames=num_events,
-            scan_duration_minutes=scan_duration_minutes
+            scan_duration_minutes=scan_duration_minutes,
+            ocr_engine=ocr_engine,
+            ollama_host=ollama_host,
+            ollama_model=ollama_model
         )
         
         if not subtitles:
@@ -215,7 +218,10 @@ def main():
             args.subtitle_track,
             args.offset,
             args.scan_duration,
-            num_events=args.max_frames  # Use max_frames to extract the desired number of subtitles
+            num_events=args.max_frames,  # Use max_frames to extract the desired number of subtitles
+            ocr_engine=args.ocr_engine,
+            ollama_host=args.ollama_host,
+            ollama_model=args.ollama_model
         )
         
         if fingerprint is None:

@@ -40,3 +40,4 @@ episode1.json
 episode2.json
 pyvenv.cfg
 !tests/fixtures/test_subtitle.sup
+debug_output*/

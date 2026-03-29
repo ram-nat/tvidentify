@@ -13,7 +13,7 @@ import re
 import tempfile
 import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import cv2
 import numpy as np
@@ -37,6 +37,11 @@ logger = logging.getLogger(__name__)
 class SubtitleHandler(ABC):
     """Abstract base class for subtitle format handlers."""
     
+    def __init__(self, ocr_engine: str = 'ollama', ollama_host: Optional[str] = None, ollama_model: str = 'glm-ocr'):
+        self.ocr_engine = ocr_engine
+        self.ollama_host = ollama_host
+        self.ollama_model = ollama_model
+        
     @abstractmethod
     def extract_text(
         self,
@@ -136,6 +141,45 @@ def ocr_image(cv_img: np.ndarray) -> str:
     text = pytesseract.image_to_string(processed_img, config=custom_config)
     
     return clean_subtitle_text(text)
+
+
+def ocr_with_ollama(pil_img: Image.Image, host: Optional[str] = None, model: str = 'glm-ocr') -> str:
+    """
+    Performs OCR using the local Ollama instance with the specified model.
+    Passes the raw PIL image bytes directly.
+    """
+    import io
+    try:
+        import ollama
+    except ImportError:
+        logger.error("Ollama package is not installed.")
+        return ""
+    
+    # Convert image to bytes
+    img_byte_arr = io.BytesIO()
+    # Save as PNG to preserve alpha channel and quality
+    pil_img.save(img_byte_arr, format='PNG')
+    img_bytes = img_byte_arr.getvalue()
+    
+    prompt = "OCR this image. Output only the text found in the image. Do not describe the image."
+    
+    client = ollama.Client(host=host) if host else ollama
+    
+    try:
+        response = client.chat(
+            model=model,
+            messages=[{
+                'role': 'user',
+                'content': prompt,
+                'images': [img_bytes]
+            }],
+            options={'temperature': 0.0}
+        )
+        text = response['message']['content'].strip()
+        return clean_subtitle_text(text)
+    except Exception as e:
+        logger.error("Error processing image with Ollama OCR: %s", e)
+        return ""
 
 
 def ocr_vobsub_image(pil_img: Image.Image, debug_dir: Optional[str] = None, image_name: str = "") -> str:
@@ -244,8 +288,23 @@ class PGSHandler(SubtitleHandler):
     """Handler for PGS/SUP bitmap subtitles (Blu-ray). Requires OCR."""
     
     def check_tools(self) -> bool:
-        """Checks for OCR tools (Tesseract)."""
+        """Checks for OCR tools (Tesseract or Ollama)."""
+        from .utils import check_ocr_tools, check_ollama_tools
+        if self.ocr_engine == 'ollama':
+            return check_ollama_tools(model_name=self.ollama_model, host=self.ollama_host)
         return check_ocr_tools()
+        
+    def _get_ocr_func(self) -> Callable:
+        if self.ocr_engine == 'ollama':
+            return lambda img: ocr_with_ollama(img, host=self.ollama_host, model=self.ollama_model)
+        else:
+            def tesseract_ocr(pil_image):
+                # Convert PIL (RGBA) -> OpenCV (BGRA)
+                pil_image = pil_image.convert("RGBA")
+                open_cv_image = np.array(pil_image)
+                open_cv_image = open_cv_image[:, :, ::-1].copy()
+                return ocr_image(open_cv_image)
+            return tesseract_ocr
 
     def extract_text(
         self,
@@ -268,7 +327,7 @@ class PGSHandler(SubtitleHandler):
                 return []
             
             # OCR the SUP file
-            return self._extract_text_from_sup(sup_file_path, max_subtitles)
+            return self._extract_text_from_sup(sup_file_path, max_subtitles, ocr_func=self._get_ocr_func())
     
     def _extract_sup_file(
         self,
@@ -315,10 +374,12 @@ class PGSHandler(SubtitleHandler):
     def _extract_text_from_sup(
         self, 
         sup_file_path: str, 
-        max_subtitles: Optional[int] = None
+        max_subtitles: Optional[int] = None,
+        ocr_func: Optional[Callable] = None
     ) -> List[str]:
         """Extracts text from SUP file using PGSReader and OCR."""
         try:
+            func = ocr_func or self._get_ocr_func()
             pgs = PGSReader(sup_file_path)
             subtitles = []
             count = 0
@@ -332,12 +393,7 @@ class PGSHandler(SubtitleHandler):
                         pil_image = make_image(ods=ds.ods[0], pds=ds.pds[0])
                         
                         if pil_image:
-                            # Convert PIL (RGBA) -> OpenCV (BGRA)
-                            pil_image = pil_image.convert("RGBA")
-                            open_cv_image = np.array(pil_image)
-                            open_cv_image = open_cv_image[:, :, ::-1].copy()
-                            
-                            text = ocr_image(open_cv_image)
+                            text = func(pil_image)
                             
                             if text:
                                 subtitles.append(text)
@@ -362,11 +418,17 @@ class VobSubHandler(SubtitleHandler):
     """Handler for VobSub (DVD) bitmap subtitles. Requires OCR."""
     
     def check_tools(self) -> bool:
-        """Checks for OCR tools (Tesseract) and VobSub extraction tools (mkvextract)."""
+        """Checks for OCR tools and VobSub extraction tools (mkvextract)."""
+        from .utils import check_ocr_tools, check_vobsub_tools, check_ollama_tools
         # Run all checks so user sees all missing dependencies at once
-        ocr_ok = check_ocr_tools()
+        ocr_ok = check_ollama_tools(model_name=self.ollama_model, host=self.ollama_host) if self.ocr_engine == 'ollama' else check_ocr_tools()
         vobsub_tools_ok = check_vobsub_tools()
         return ocr_ok and vobsub_tools_ok
+
+    def _get_ocr_func(self, debug_dir: Optional[str] = None) -> Callable:
+        if self.ocr_engine == 'ollama':
+            return lambda img, ts: ocr_with_ollama(img, host=self.ollama_host, model=self.ollama_model)
+        return lambda img, ts: ocr_vobsub_image(img, debug_dir=debug_dir, image_name=f"sub_{ts}")
 
     def extract_text(
         self,
@@ -396,7 +458,7 @@ class VobSubHandler(SubtitleHandler):
                 max_subtitles=max_subtitles,
                 offset_seconds=offset_minutes * 60,
                 duration_seconds=scan_duration_minutes * 60,
-                debug_dir=debug_dir
+                ocr_func=self._get_ocr_func(debug_dir)
             )
     
     def _extract_vobsub_files(
@@ -539,7 +601,7 @@ class VobSubHandler(SubtitleHandler):
         max_subtitles: Optional[int] = None,
         offset_seconds: int = 0,
         duration_seconds: Optional[int] = None,
-        debug_dir: Optional[str] = None,
+        ocr_func: Optional[Callable] = None
     ) -> List[str]:
         """
         Extract text from standalone VobSub idx/sub files.
@@ -552,12 +614,13 @@ class VobSubHandler(SubtitleHandler):
             max_subtitles: Maximum number of subtitles to extract
             offset_seconds: Skip subtitles before this timestamp
             duration_seconds: Only process subtitles within this duration from offset
-            debug_dir: Optional directory to save debug images
+            ocr_func: Optional injected lambda function for OCR (strategy pattern)
             
         Returns:
             List of extracted subtitle strings
         """
         try:
+            func = ocr_func or self._get_ocr_func()
             reader = VobSubReader(idx_file_path)
             subtitles = []
             count = 0
@@ -580,11 +643,7 @@ class VobSubHandler(SubtitleHandler):
                     try:
                         # Use timestamp for unique debug image names
                         timestamp_str = f"{event.timestamp_ms:08d}"
-                        text = ocr_vobsub_image(
-                            event.image,
-                            debug_dir=debug_dir,
-                            image_name=f"sub_{timestamp_str}"
-                        )
+                        text = func(event.image, timestamp_str)
                         
                         if text:
                             subtitles.append(text)
@@ -612,6 +671,9 @@ class VobSubHandler(SubtitleHandler):
 class SRTHandler(SubtitleHandler):
     """Handler for SRT/SubRip text subtitles. No OCR needed."""
     
+    def check_tools(self) -> bool:
+        return True
+
     def extract_text(
         self,
         video_file: str,
@@ -747,19 +809,31 @@ CODEC_HANDLERS = {
 }
 
 
-def get_handler_for_codec(codec_name: str) -> Optional[SubtitleHandler]:
+def get_handler_for_codec(
+    codec_name: str, 
+    ocr_engine: str = 'ollama', 
+    ollama_host: Optional[str] = None, 
+    ollama_model: str = 'glm-ocr'
+) -> Optional[SubtitleHandler]:
     """
     Factory function to get the appropriate handler for a subtitle codec.
     
     Args:
         codec_name: The codec name from ffprobe (e.g., 'hdmv_pgs_subtitle', 'subrip')
+        ocr_engine: OCR engine configuration to inject via constructor.
+        ollama_host: Configuration for connection.
+        ollama_model: Configuration for target llm model.
         
     Returns:
         A SubtitleHandler instance, or None if the codec is not supported.
     """
     handler_class = CODEC_HANDLERS.get(codec_name)
     if handler_class:
-        return handler_class()
+        return handler_class(
+            ocr_engine=ocr_engine,
+            ollama_host=ollama_host,
+            ollama_model=ollama_model
+        )
     return None
 
 

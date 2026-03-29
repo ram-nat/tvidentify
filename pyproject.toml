@@ -14,7 +14,8 @@ dependencies = [
   "opencv-python-headless",
   "pytesseract",
   "openai",
-  "google-genai"
+  "google-genai",
+  "ollama"
 ]
 
 [project.urls]

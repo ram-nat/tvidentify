@@ -141,7 +141,7 @@ class TestVobSubHandler:
         """VobSubHandler.extract_from_idx extracts and OCRs subtitles."""
         from tvidentify.subtitle_handlers import VobSubHandler
         
-        handler = VobSubHandler()
+        handler = VobSubHandler(ocr_engine='tesseract')
         
         # Extract first 5 subtitles
         subtitles = handler.extract_from_idx(vobsub_idx_file, max_subtitles=5)
@@ -160,7 +160,7 @@ class TestVobSubHandler:
         """VobSubHandler respects time offset and duration filters."""
         from tvidentify.subtitle_handlers import VobSubHandler
         
-        handler = VobSubHandler()
+        handler = VobSubHandler(ocr_engine='tesseract')
         
         # Extract subtitles starting at 1 minute for 30 seconds
         subtitles = handler.extract_from_idx(
@@ -191,7 +191,7 @@ class TestVobSubOCRAccuracy:
         """Generate a quality report for the first 20 subtitles."""
         from tvidentify.subtitle_handlers import VobSubHandler
         
-        handler = VobSubHandler()
+        handler = VobSubHandler(ocr_engine='tesseract')
         
         # Extract first 20 subtitles
         subtitles = handler.extract_from_idx(vobsub_idx_file, max_subtitles=20)

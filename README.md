@@ -254,6 +254,7 @@ See requirements.txt - includes:
 - `pytesseract` - Python interface to Tesseract OCR
 - `openai` - OpenAI API client
 - `google-genai` - Google Generative AI client
+- `ollama` - For OCR using glm-ocr
 
 ## Example Output
 

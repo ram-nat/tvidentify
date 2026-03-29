@@ -235,6 +235,7 @@ Processes multiple video files:
 - `ffmpeg` - For video processing
 - `ffprobe` - For reading video metadata (comes with ffmpeg)
 - `tesseract-ocr` - For optical character recognition (OCR) on subtitle images
+- `ollama` - For OCR using glm-ocr
 - `mkvtoolnix` - For extracting VobSub subtitles (`mkvextract` and `mkvmerge`)
 
 Install on Ubuntu/Debian:

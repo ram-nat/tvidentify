@@ -241,11 +241,13 @@ Processes multiple video files:
 Install on Ubuntu/Debian:
 ```bash
 sudo apt-get install ffmpeg tesseract-ocr mkvtoolnix
+curl -fsSL https://ollama.com/install.sh | sh
 ```
 
 Install on macOS:
 ```bash
 brew install ffmpeg tesseract mkvtoolnix
+curl -fsSL https://ollama.com/install.sh | sh
 ```
 
 ### Python Dependencies

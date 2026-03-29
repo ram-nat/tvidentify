@@ -2,6 +2,8 @@
 
 Python tool for automatically identifying and renaming TV Show episodes for Plex given the video files and series name. Identifies TV show episodes from video files using OCR on PGS/VobSub or directly use SRT subtitles and LLM analysis of subtitles.
 
+Now with Ollama OCR integration, you can use glm-ocr for OCR. You can also use tesseract as a fallback. glm-ocr is a lot more accurate and handles things like screen-door effect without any additional processing.
+
 ## Get Started
 
 ### To just install the package and use it as a utility

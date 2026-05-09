@@ -158,7 +158,7 @@ def ocr_with_ollama(pil_img: Image.Image, host: Optional[str] = None, model: str
     # Convert image to bytes
     img_byte_arr = io.BytesIO()
     # Save as PNG to preserve alpha channel and quality
-    pil_img.save(img_byte_arr, format='PNG')
+    pil_img.convert('RGBA').save(img_byte_arr, format='PNG')
     img_bytes = img_byte_arr.getvalue()
     
     prompt = "OCR this image. Output only the text found in the image. Do not describe the image."
